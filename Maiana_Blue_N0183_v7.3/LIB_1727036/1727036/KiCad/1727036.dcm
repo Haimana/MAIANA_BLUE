@@ -1,0 +1,9 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP 1727036
+D PCB terminal block, nominal current: 13.5 A, rated voltage (III/2): 200 V, nominal cross section: 1.5 mm?, Number of potentials: 4, Number of rows: 1, Number of positions per row: 4, product range: MKDS 1, pitch: 3.81 mm, connection method: Screw connection with tension sleeve, mounting: Wave soldering, conductor/PCB connection direction: 0 ?, color: green, Pin layout: Linear pinning, Solder pin [P]: 3.5 mm, type of packaging: packed in cardboard
+K
+F https://www.phoenixcontact.com/en-ca/products/printed-circuit-board-terminal-mkds-1-4-381-1727036
+$ENDCMP
+#
+#End Doc Library

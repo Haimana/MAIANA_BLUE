@@ -1,0 +1,9 @@
+Manufacturer=Phoenix Contact
+PartNumber=1727036
+PartCategory=Connector
+PackageCategory=Other
+PinCount=4
+Version=3.2
+Released=2018-05-21 12:06:26
+Downloaded=2025-06-06 10:08:37
+3D=Y

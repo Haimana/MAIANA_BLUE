@@ -1,0 +1,11 @@
+FILE_TYPE = MULTI_PHYS_TABLE;
+
+PART '1727036'
+CLASS = IO
+{========================================================================================}
+:"MANUFACTURER_NAME", "MANUFACTURER_PART_NUMBER"= "PART_NUMBER", "JEDEC_TYPE", "PACK_TYPE", "MOUSER_PART_NUMBER", "MOUSER_PRICE/STOCK", "ARROW_PART_NUMBER", "ARROW_PRICE/STOCK", "DESCRIPTION", "DATASHEET", "HEIGHT";
+{========================================================================================}
+ "Phoenix Contact", "1727036" (!) = "", "1727036", "Other", "651-1727036", "https://www.mouser.co.uk/ProductDetail/Phoenix-Contact/1727036?qs=JcjeNNoqGSPP3LoUVQFt6g%3D%3D", "1727036", "https://www.arrow.com/en/products/1727036/phoenix-contact?region=nac", "PCB terminal block, nominal current: 13.5 A, rated voltage (III/2): 200 V, nominal cross section: 1.5 mm?, Number of potentials: 4, Number of rows: 1, Number of positions per row: 4, product range: MKDS 1, pitch: 3.81 mm, connection method: Screw connection with tension sleeve, mounting: Wave soldering, conductor/PCB connection direction: 0 ?, color: green, Pin layout: Linear pinning, Solder pin [P]: 3.5 mm, type of packaging: packed in cardboard", "https://www.phoenixcontact.com/en-ca/products/printed-circuit-board-terminal-mkds-1-4-381-1727036", "8.65 mm"
+END_PART
+
+END.
