@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "UARTBreakout-3.0")(type "KiCad")(uri "$(KIPRJMOD)/Maiana_Blue_UART_v3.0.pretty")(options "")(descr ""))
+)

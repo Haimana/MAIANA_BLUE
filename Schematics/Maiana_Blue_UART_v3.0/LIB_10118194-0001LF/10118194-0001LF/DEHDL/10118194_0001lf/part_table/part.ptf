@@ -1,0 +1,11 @@
+FILE_TYPE = MULTI_PHYS_TABLE;
+
+PART '10118194_0001LF'
+CLASS = IO
+{========================================================================================}
+:"MANUFACTURER_NAME", "MANUFACTURER_PART_NUMBER"= "PART_NUMBER", "JEDEC_TYPE", "PACK_TYPE", "MOUSER_PART_NUMBER", "MOUSER_PRICE/STOCK", "ARROW_PART_NUMBER", "ARROW_PRICE/STOCK", "DESCRIPTION", "DATASHEET", "HEIGHT";
+{========================================================================================}
+ "Amphenol Communications Solutions", "10118194-0001LF" (!) = "", "101181940001LF", "Other", "", "", "10118194-0001LF", "https://www.arrow.com/en/products/10118194-0001lf/amphenol-fci?utm_currency=USD&region=nac", "Micro USB, Input Output Connectors, B TYPE RECEPTACLE with flange", "https://www.amphenol-cs.com/micro-usb-101181940001lf.html", "3.25 mm"
+END_PART
+
+END.

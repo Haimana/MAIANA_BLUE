@@ -1,0 +1,19 @@
+.10118194-0001LF :1 ;Micro USB, Input Output Connectors, B TYPE RECEPTACLE with flange
+"101181940001LF"
+*STM J
+*NGS
+*PNM 1=1 2=2 3=3 4=4 5=5 6=MH1 7=MH2 8=MH3 9=MH4 10=MP1 11=MP2
+*PLB 1="1" 2="2" 3="3" 4="4" 5="5" 6="MH1" 7="MH2" 8="MH3" 9="MH4" 10="MP1" 11="MP2"
+*MXP 11
+*DFN 10118194-0001LF
+~!Manufacturer_Name (Amphenol Communications Solutions)
+~!Manufacturer_Part_Number (10118194-0001LF)
+~!Mouser Part Number (-)
+~!Mouser Price/Stock (-)
+~!Arrow Part Number (10118194-0001LF)
+~!Link Arrow Price/Stock (https://www.arrow.com/en/products/10118194-0001lf/amphenol-fci?utm_currency=USD&region=nac)
+~!Link Datasheet (https://www.amphenol-cs.com/micro-usb-101181940001lf.html)
+~!Height (3.25mm)
+~!3D_Model (10118194-0001LF)
+"10118194-0001LF"
+1.1!U 2.1!U 3.1!U 4.1!U 5.1!U 6.1!U 7.1!U 8.1!U 9.1!U 10.1!U 11.1!U 

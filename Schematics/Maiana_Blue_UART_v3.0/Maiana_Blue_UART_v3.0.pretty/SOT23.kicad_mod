@@ -1,0 +1,213 @@
+(footprint "SOT23"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(descr "SMALL OUTLINE TRANSISTOR\n\nreflow soldering")
+	(property "Reference" "REF**"
+		(at -1.905 -1.905 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "79563b85-a36b-4d8f-bc3e-fca050595d3b")
+		(effects
+			(font
+				(size 1.1684 1.1684)
+				(thickness 0.1016)
+			)
+			(justify left bottom)
+		)
+	)
+	(property "Value" "SOT23"
+		(at -1.905 3.175 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "4fe4a8dd-2969-488e-ba49-4679690df670")
+		(effects
+			(font
+				(size 1.1684 1.1684)
+				(thickness 0.1016)
+			)
+			(justify left bottom)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "44a3ac5a-257d-45e3-9aa7-24d822dba006")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "849f0bd7-7f08-4201-9da4-8a1109a29ab7")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(fp_poly
+		(pts
+			(xy -0.5001 0.3) (xy 0.5001 0.3) (xy 0.5001 -0.3) (xy -0.5001 -0.3)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(fill yes)
+		(layer "F.Adhes")
+		(uuid "3225f0e2-57c4-4e5c-a230-fae40770295e")
+	)
+	(fp_line
+		(start -1.973 -1.983)
+		(end 1.973 -1.983)
+		(stroke
+			(width 0.0508)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "08857564-3bfe-4bad-b60c-76c499699de7")
+	)
+	(fp_line
+		(start -1.973 1.983)
+		(end -1.973 -1.983)
+		(stroke
+			(width 0.0508)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "c0991866-b36d-4573-9324-a427fe4aa1f6")
+	)
+	(fp_line
+		(start 1.973 -1.983)
+		(end 1.973 1.983)
+		(stroke
+			(width 0.0508)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "e1e6efdd-cf4d-4661-88b1-4603e5bd1478")
+	)
+	(fp_line
+		(start 1.973 1.983)
+		(end -1.973 1.983)
+		(stroke
+			(width 0.0508)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "5e1b7a1a-3ca3-408f-b89f-ce70f8fa41ce")
+	)
+	(fp_line
+		(start -1.422 -0.66)
+		(end 1.422 -0.66)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "3e053c92-4024-415e-87ab-bf14b424ca9a")
+	)
+	(fp_line
+		(start -1.422 0.66)
+		(end -1.422 -0.66)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "677481e7-b6dc-4935-8a6d-f3c4e306ae62")
+	)
+	(fp_line
+		(start 1.422 -0.66)
+		(end 1.422 0.66)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "82bc064b-463b-47e6-9696-e5c1ae4963fd")
+	)
+	(fp_line
+		(start 1.422 0.66)
+		(end -1.422 0.66)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "48dcf94b-5f7e-45c7-886c-24309c1f9737")
+	)
+	(fp_poly
+		(pts
+			(xy -1.1684 1.2954) (xy -0.7112 1.2954) (xy -0.7112 0.7112) (xy -1.1684 0.7112)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(fill yes)
+		(layer "F.Fab")
+		(uuid "4ba16b3f-e05d-409f-b858-37a00d3b561a")
+	)
+	(fp_poly
+		(pts
+			(xy -0.2286 -0.7112) (xy 0.2286 -0.7112) (xy 0.2286 -1.2954) (xy -0.2286 -1.2954)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(fill yes)
+		(layer "F.Fab")
+		(uuid "3d151906-1118-47fd-baf1-19de77de53e5")
+	)
+	(fp_poly
+		(pts
+			(xy 0.7112 1.2954) (xy 1.1684 1.2954) (xy 1.1684 0.7112) (xy 0.7112 0.7112)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(fill yes)
+		(layer "F.Fab")
+		(uuid "2bf7aeea-56f2-4d84-b238-168ceb8fd3d1")
+	)
+	(pad "1" smd rect
+		(at -0.95 1.1)
+		(size 1 1.4)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(solder_mask_margin 0.1016)
+		(solder_paste_margin 0)
+		(thermal_bridge_angle 0)
+		(uuid "7d7b1afb-eb61-439c-8de1-9fe86f2abce8")
+	)
+	(pad "2" smd rect
+		(at 0.95 1.1)
+		(size 1 1.4)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(solder_mask_margin 0.1016)
+		(solder_paste_margin 0)
+		(thermal_bridge_angle 0)
+		(uuid "90ffb33f-59b1-4728-b1c7-41d36a095463")
+	)
+	(pad "3" smd rect
+		(at 0 -1.1)
+		(size 1 1.4)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(solder_mask_margin 0.1016)
+		(solder_paste_margin 0)
+		(thermal_bridge_angle 0)
+		(uuid "aff2260a-6d6f-4f93-8ebd-736bfe014876")
+	)
+	(embedded_fonts no)
+)
