@@ -1,0 +1,121 @@
+   1              		.cpu cortex-m4
+   2              		.arch armv7e-m
+   3              		.fpu fpv4-sp-d16
+   4              		.eabi_attribute 27, 1
+   5              		.eabi_attribute 28, 1
+   6              		.eabi_attribute 20, 1
+   7              		.eabi_attribute 21, 1
+   8              		.eabi_attribute 23, 3
+   9              		.eabi_attribute 24, 1
+  10              		.eabi_attribute 25, 1
+  11              		.eabi_attribute 26, 1
+  12              		.eabi_attribute 30, 4
+  13              		.eabi_attribute 34, 1
+  14              		.eabi_attribute 18, 4
+  15              		.file	"bsp_10_5.cpp"
+  16              		.section	.gnu.lto_.profile.551a0067,"e",%progbits
+  17 0000 789C6362 		.ascii	"x\234cb\000\001\000\000\022\000\003"
+  17      00010000 
+  17      120003
+  18              		.text
+  19              		.section	.gnu.lto_.icf.551a0067,"e",%progbits
+  20 0000 789C6362 		.ascii	"x\234cb@\006\000\000*\000\003"
+  20      40060000 
+  20      2A0003
+  21              		.text
+  22              		.section	.gnu.lto_.ipa_sra.551a0067,"e",%progbits
+  23 0000 789C6362 		.ascii	"x\234cb@\006\000\000*\000\003"
+  23      40060000 
+  23      2A0003
+  24              		.text
+  25              		.section	.gnu.lto_.inline.551a0067,"e",%progbits
+  26 0000 789C6362 		.ascii	"x\234cb@\006\000\000*\000\003"
+  26      40060000 
+  26      2A0003
+  27              		.text
+  28              		.section	.gnu.lto_.jmpfuncs.551a0067,"e",%progbits
+  29 0000 789C6362 		.ascii	"x\234cb@\006\000\000*\000\003"
+  29      40060000 
+  29      2A0003
+  30              		.text
+  31              		.section	.gnu.lto_.pureconst.551a0067,"e",%progbits
+  32 0000 789C6364 		.ascii	"x\234cd\000\002\000\000\012\000\002"
+  32      00020000 
+  32      0A0002
+  33              		.text
+  34              		.section	.gnu.lto_.lto.551a0067,"e",%progbits
+  35 0000 09000400 		.ascii	"\011\000\004\000\001\000\000\000"
+  35      01000000 
+  36              		.text
+  37              		.section	.gnu.lto_.symbol_nodes.551a0067,"e",%progbits
+  38 0000 789C6362 		.ascii	"x\234cb\000\001\000\000\022\000\003"
+  38      00010000 
+  38      120003
+  39              		.text
+  40              		.section	.gnu.lto_.refs.551a0067,"e",%progbits
+  41 0000 789C6364 		.ascii	"x\234cd\000\002\000\000\012\000\002"
+  41      00020000 
+  41      0A0002
+  42              		.text
+  43              		.section	.gnu.lto_.decls.551a0067,"e",%progbits
+  44 0000 789C6360 		.ascii	"x\234c````\004b\025 \376\017\004 \366E\006\002\000\000"
+  44      60606004 
+  44      621520FE 
+  44      0F0420F6 
+  44      45060200 
+  45 0015 BF3204F4 		.ascii	"\2772\004\364"
+  46              		.text
+  47              		.section	.gnu.lto_.symtab.551a0067,"e",%progbits
+  48              		.text
+  49              		.section	.gnu.lto_.ext_symtab.551a0067,"e",%progbits
+  50 0000 01       		.ascii	"\001"
+  51              		.text
+  52              		.section	.gnu.lto_.opts,"e",%progbits
+  53 0000 272D666E 		.ascii	"'-fno-openmp' '-fno-openacc' '-fno-pie' '-fcf-prote"
+  53      6F2D6F70 
+  53      656E6D70 
+  53      2720272D 
+  53      666E6F2D 
+  54 0033 6374696F 		.ascii	"ction=none' '-mcpu=cortex-m4' '-mthumb' '-mfloat-ab"
+  54      6E3D6E6F 
+  54      6E652720 
+  54      272D6D63 
+  54      70753D63 
+  55 0066 693D6861 		.ascii	"i=hard' '-mfpu=fpv4-sp-d16' '-mlibarch=armv7e-m+fp'"
+  55      72642720 
+  55      272D6D66 
+  55      70753D66 
+  55      7076342D 
+  56 0099 20272D6D 		.ascii	" '-march=armv7e-m+fp' '-Os' '-fmessage-length=0' '-"
+  56      61726368 
+  56      3D61726D 
+  56      7637652D 
+  56      6D2B6670 
+  57 00cc 66736967 		.ascii	"fsigned-char' '-ffunction-sections' '-fdata-section"
+  57      6E65642D 
+  57      63686172 
+  57      2720272D 
+  57      6666756E 
+  58 00ff 73272027 		.ascii	"s' '-fsingle-precision-constant' '-flto' '-fabi-ver"
+  58      2D667369 
+  58      6E676C65 
+  58      2D707265 
+  58      63697369 
+  59 0132 73696F6E 		.ascii	"sion=0' '-fno-exceptions' '-Xassembler' '-adhlns=Sr"
+  59      3D302720 
+  59      272D666E 
+  59      6F2D6578 
+  59      63657074 
+  60 0165 632F6273 		.ascii	"c/bsp/bsp_10_5.o.lst'\000"
+  60      702F6273 
+  60      705F3130 
+  60      5F352E6F 
+  60      2E6C7374 
+  61              		.text
+  62              		.comm	__gnu_lto_slim,1,1
+  63              		.ident	"GCC: (GNU Arm Embedded Toolchain 10.3-2021.10) 10.3.1 20210824 (release)"
+DEFINED SYMBOLS
+                            *ABS*:00000000 bsp_10_5.cpp
+                            *COM*:00000001 __gnu_lto_slim
+
+NO UNDEFINED SYMBOLS
