@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "n2k-frontpanel-1.2-eagle-import")(type "KiCad")(uri "${KIPRJMOD}/n2k-frontpanel-1.2-eagle-import.kicad_sym")(options "")(descr ""))
+)

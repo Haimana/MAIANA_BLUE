@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "n2k-frontpanel-1.2")(type "KiCad")(uri "$(KIPRJMOD)/Maiana_Blue_Frontpanel_v1.0.pretty")(options "")(descr ""))
+)
