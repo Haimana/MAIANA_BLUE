@@ -16,7 +16,7 @@ Upstream concept and license remain those of the **MAIANA** project (GPL v3, Pet
 - **`platformio.ini`** — defines multiple `[env:...]` targets (L432 / L412, legacy vs new breakout, with or without bootloader offset `0x4800`). In the stock file, **only one** environment is active (`L432-NewBreakouts-Bootloader`); the others are present but **commented out** — uncomment the block you need before building.
 - **`Src/`**, **`Inc/`**, **`Drivers/`**, **`startup/`**, linker scripts — same overall structure as the CubeIDE project; build filters select BSP and startup per environment.
 - **`Python/`** — `fwupdate-py3.py` and bootloader helpers for field updates.
-- **`Binaries/`** — used locally for post-build **`.bin`** copies (see below). **`Binaries/*.bin`** is listed in **`.gitignore`** so generated images are not committed. Prebuilt binaries were removed from version control earlier.
+- **`Binaries/`** — post-build **`.bin`** copies from `pio run` (see below). Release images in this folder are **tracked in git**; add or update them when you publish a new build.
 - **`.gitignore`** — ignores **`.pio/`**, `.cursor/`, and similar generated content.
 
 Firmware images are produced under **`.pio/build/<env>/`** after a successful build.
