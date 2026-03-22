@@ -1,0 +1,30 @@
+*.o
+*.elf
+*.map
+*.hex
+*~
+*.d
+Release
+Debug
+/STM32L412-Debug/
+/STM32L412-Release/
+/STM32L432-Debug/
+/STM32L432-Release/
+/STM32L422-Debug/
+/STM32L422-Release/
+.settings/language.settings.xml
+/STM32L422-Release/
+/STM32L422-Debug/
+/STM32L431-Release/
+/STM32L431-Debug/
+
+
+# PlatformIO / editor
+.pio/
+.pioenvs/
+.piolibdeps/
+.cursor/
+_backup_/
+
+# Post-build copies from scripts/pio_post_copy_firmware.py (keep Binaries/ in repo, not the .bin)
+/Binaries/*.bin
