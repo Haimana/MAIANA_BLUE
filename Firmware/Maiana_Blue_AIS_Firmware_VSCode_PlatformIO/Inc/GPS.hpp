@@ -25,6 +25,8 @@
 #include <time.h>
 #include "EventQueue.hpp"
 
+class NMEASentence;
+
 class GPSDelegate
 {
 public:
@@ -60,13 +62,18 @@ public:
 
 	void onIRQ(uint32_t mask, void *data);
 	void processEvent(const Event &event);
+	void drainEcho();
 
 private:
 	GPS();
 	void processLine(const char *buff);
 	void parseSentence(const char *buff);
+	void parseRmc(const NMEASentence &sentence);
+	void parseGga(const NMEASentence &sentence);
+	void applyFix(float lat, float lng, float speed, float cog);
+	bool isValidNmeaDate(const char *ddmmyy);
 private:
-	char mBuff[100];
+	char mBuff[120];
 	uint8_t mBuffPos;
 	time_t mUTC;
 	float mLat;

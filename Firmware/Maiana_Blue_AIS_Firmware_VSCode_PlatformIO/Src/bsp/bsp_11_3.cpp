@@ -36,7 +36,7 @@
 #define EEPROM_TX_CONFIG_ADDRESS        0x70
 #define STATION_DATA_FLASH_ADDRESS      0x0800F800
 
-const char *BSP_HW_REV = "11.9.3";
+const char *BSP_HW_REV = "11.10.0";
 
 I2C_HandleTypeDef hi2c1;
 SPI_HandleTypeDef hspi1;
@@ -221,7 +221,7 @@ void bsp_hw_init()
 
   // USART2 (GNSS, RX only)
   huart2.Instance                     = USART2;
-  huart2.Init.BaudRate                = 9600;
+  huart2.Init.BaudRate                = 115200;
   huart2.Init.WordLength              = UART_WORDLENGTH_8B;
   huart2.Init.StopBits                = UART_STOPBITS_1;
   huart2.Init.Parity                  = UART_PARITY_NONE;
@@ -232,7 +232,9 @@ void bsp_hw_init()
   huart2.AdvancedInit.AdvFeatureInit  = UART_ADVFEATURE_NO_INIT;
   HAL_UART_Init(&huart2);
 
-  HAL_NVIC_SetPriority(USART2_IRQn, 7, 0);
+  // IRQ test 4.5.4: USART2=2 (above AIS) so SOTDMA/RX/TX bit-clock keep priority 1.
+  // At 115200 a byte arrives every ~87us; watch for merged NMEA ($GNRMC...$GNRMC).
+  HAL_NVIC_SetPriority(USART2_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(USART2_IRQn);
   __HAL_UART_ENABLE_IT(&huart2, UART_IT_RXNE);
 
@@ -253,7 +255,7 @@ void bsp_hw_init()
   HAL_NVIC_SetPriority(EXTI2_IRQn, 6, 0);
   HAL_NVIC_EnableIRQ(EXTI2_IRQn);
 
-  // SOTDMA
+  // SOTDMA + AIS bit clocks at priority 1 (same as USART1; above USART2/GNSS)
   HAL_NVIC_SetPriority(TIM2_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(TIM2_IRQn);
 
@@ -266,7 +268,6 @@ void bsp_hw_init()
 
 
 
-  // TEMPORARY: Skip EEPROM read in bsp_hw_init() - will be read later when needed
   memset(&__station, 0, sizeof(StationData));
 }
 
@@ -436,6 +437,8 @@ void bsp_read_station_data(StationData *data)
     {
       HAL_I2C_Mem_Read(&hi2c1, EEPROM_ADDRESS|1, i+EEPROM_STATION_ADDRESS, 1, d, 1, 5);
     }
+
+  __station = *data;
 }
 
 void bsp_write_station_data(const StationData &data)
@@ -633,6 +636,11 @@ void USART_putc(USART_TypeDef* USARTx, char c)
   USARTx->TDR = c;
 }
 
+bool bsp_uart1_can_write()
+{
+  return (USART1->ISR & USART_ISR_TXE) != 0;
+}
+
 void bsp_write_char(char c)
 {
   USART_putc(USART1, c);
@@ -731,6 +739,8 @@ uint8_t bsp_tx_spi_byte(uint8_t data)
 
 void bsp_reboot()
 {
+  bsp_gnss_off();
+  HAL_Delay(50);
   NVIC_SystemReset();
 }
 
@@ -789,6 +799,12 @@ extern "C"
 
   void USART2_IRQHandler()
   {
+    if ( __HAL_UART_GET_FLAG(&huart2, UART_FLAG_ORE) )
+      {
+        __HAL_UART_CLEAR_FLAG(&huart2, UART_CLEAR_OREF);
+        (void)USART2->RDR;
+      }
+
     if ( __HAL_UART_GET_IT(&huart2, UART_IT_RXNE) )
       {
         __HAL_UART_CLEAR_IT(&huart2, UART_IT_RXNE);

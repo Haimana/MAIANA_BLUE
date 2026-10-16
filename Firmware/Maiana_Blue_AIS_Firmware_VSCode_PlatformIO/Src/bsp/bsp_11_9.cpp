@@ -221,7 +221,7 @@ void bsp_hw_init()
 
   // USART2 (GNSS, RX only)
   huart2.Instance                     = USART2;
-  huart2.Init.BaudRate                = 9600;
+  huart2.Init.BaudRate                = 115200;
   huart2.Init.WordLength              = UART_WORDLENGTH_8B;
   huart2.Init.StopBits                = UART_STOPBITS_1;
   huart2.Init.Parity                  = UART_PARITY_NONE;
@@ -266,7 +266,6 @@ void bsp_hw_init()
 
 
 
-  // TEMPORARY: Skip EEPROM read in bsp_hw_init() - will be read later when needed
   memset(&__station, 0, sizeof(StationData));
 }
 
@@ -436,6 +435,8 @@ void bsp_read_station_data(StationData *data)
     {
       HAL_I2C_Mem_Read(&hi2c1, EEPROM_ADDRESS|1, i+EEPROM_STATION_ADDRESS, 1, d, 1, 5);
     }
+
+  __station = *data;
 }
 
 void bsp_write_station_data(const StationData &data)

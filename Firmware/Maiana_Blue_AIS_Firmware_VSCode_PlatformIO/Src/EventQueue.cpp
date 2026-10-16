@@ -23,6 +23,7 @@
 #include "printf_serial.h"
 #include "Utils.hpp"
 #include "bsp.hpp"
+#include "config.h"
 
 
 EventQueue &EventQueue::instance()
@@ -91,6 +92,9 @@ void EventQueue::dispatch()
         }
 
       EventPool::instance().deleteEvent(e);
+#if ENABLE_WDT
+      bsp_refresh_wdt();
+#endif
     }
 
   while (mTaskQueue.pop(e))
@@ -104,6 +108,9 @@ void EventQueue::dispatch()
         }
 
       EventPool::instance().deleteEvent(e);
+#if ENABLE_WDT
+      bsp_refresh_wdt();
+#endif
     }
 }
 

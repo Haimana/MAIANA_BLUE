@@ -19,19 +19,58 @@
 
 
 #include "GPS.hpp"
-#include "DataTerminal.hpp"
 #include "config.h"
 #include "NMEASentence.hpp"
 #include "Utils.hpp"
 #include "EventQueue.hpp"
 #include "bsp.hpp"
+#include <stm32l4xx_hal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 
 void gnssInputCB(char c);
 void gnss1PPSCB();
 void gnssSOTDMACB();
+
+// LC76G default output is ~1.5KB/s (1Hz burst). USART1 at 38400 (~3.8KB/s) can
+// relay the full stream if echo is non-blocking and nav parsing stays lightweight.
+#define GPS_ECHO_BUF_SIZE           2560
+#define GPS_ECHO_DRAIN_MAX          48
+
+static char sEchoBuf[GPS_ECHO_BUF_SIZE];
+static volatile uint16_t sEchoHead = 0;
+static volatile uint16_t sEchoTail = 0;
+
+static void echoPush(char c)
+{
+  uint16_t next = (uint16_t)((sEchoHead + 1) % GPS_ECHO_BUF_SIZE);
+  if ( next == sEchoTail )
+    return;
+
+  sEchoBuf[sEchoHead] = c;
+  sEchoHead = next;
+}
+
+static void echoPushLine(const char *line, uint8_t len)
+{
+  for ( uint8_t i = 0; i < len; ++i )
+    echoPush(line[i]);
+}
+
+static bool isNavSentence(const char *line)
+{
+  if ( line[0] != '$' )
+    return false;
+
+  if ( line[3] == 'R' && line[4] == 'M' && line[5] == 'C' )
+    return true;
+  if ( line[3] == 'G' && line[4] == 'G' && line[5] == 'A' )
+    return true;
+
+  return false;
+}
 
 GPS &
 GPS::instance()
@@ -92,6 +131,8 @@ void GPS::init()
 
 void GPS::enable()
 {
+  bsp_gnss_off();
+  HAL_Delay(300);
   bsp_gnss_on();
 }
 
@@ -108,71 +149,84 @@ bool GPS::isEnabled()
 
 void GPS::onRX(char c)
 {
-  // This code is called in interrupt mode, do as little as possible!
+  if ( c == '$' )
+    mBuffPos = 0;
+
+  if ( mBuffPos >= sizeof(mBuff) - 1 )
+    {
+      mBuffPos = 0;
+      mBuff[0] = 0;
+      if ( c == '$' )
+        mBuff[mBuffPos++] = c;
+      return;
+    }
 
   mBuff[mBuffPos++] = c;
-  if (mBuffPos > 90)
-    {
-      // We screwed up!
-      mBuffPos = 0;
-      mBuff[mBuffPos] = 0;
-    }
-  else if (c == '\n')
+
+  if ( c == '\n' )
     {
       mBuff[mBuffPos] = 0;
-      Event *e = EventPool::instance().newEvent(GPS_NMEA_SENTENCE);
-      if ( e )
+
+      if ( mBuff[0] == '$' )
+        echoPushLine(mBuff, mBuffPos);
+
+      if ( isNavSentence(mBuff) )
         {
-          strlcpy(e->nmeaBuffer.sentence, mBuff, sizeof e->nmeaBuffer.sentence);
-          EventQueue::instance ().push(e);
+          Event *e = EventPool::instance().newEvent(GPS_NMEA_SENTENCE);
+          if ( e )
+            {
+              strlcpy(e->nmeaBuffer.sentence, mBuff, sizeof e->nmeaBuffer.sentence);
+              EventQueue::instance ().push(e);
+            }
         }
+
       mBuffPos = 0;
-      mBuff[mBuffPos] = 0;
+      mBuff[0] = 0;
+    }
+}
+
+void GPS::drainEcho()
+{
+  for ( int i = 0; i < GPS_ECHO_DRAIN_MAX; ++i )
+    {
+      if ( sEchoTail == sEchoHead )
+        return;
+
+      if ( !bsp_uart1_can_write() )
+        return;
+
+      bsp_write_char(sEchoBuf[sEchoTail]);
+      sEchoTail = (uint16_t)((sEchoTail + 1) % GPS_ECHO_BUF_SIZE);
     }
 }
 
 void GPS::onPPS()
 {
-  // If we don't have time yet, we can't use this
   if ( mUTC == 0 )
     return;
 
-  ++mUTC;     // PPS := advance clock by one second!
-  localtime_r (&mUTC, &mTime); // Now we know exactly what UTC second it is, with only microseconds of latency
+  ++mUTC;
+  localtime_r (&mUTC, &mTime);
   if (!mStarted)
     {
-      // To keep things simple, we only start the AIS slot timer if we're on an even second (it has a 37.5 Hz frequency)
-      mSlotNumber = (mTime.tm_sec % 60) * 2250; // We know what AIS slot number we're in
+      mSlotNumber = (mTime.tm_sec % 60) * 2250;
       if (!(mTime.tm_sec & 0x00000001))
         startTimer ();
     }
   else
     {
-      // The timer is on, now let's re-calibrate ...
       if (mTime.tm_sec & 1)
         {
-          // On odd seconds, we expect the timer value to be half its period. Just correct it.
           uint32_t nominalTimerValue = mPeriod / 2 - 1;
-          //TIM2->CNT = nominalTimerValue;
           bsp_set_sotdma_timer_value(nominalTimerValue);
         }
       else
         {
-          // On even seconds, things are a bit more tricky ...
-          //uint32_t currentTimerValue = TIM2->CNT;
           uint32_t currentTimerValue = bsp_get_sotdma_timer_value();
           if (currentTimerValue >= mPeriod / 2 - 1)
-            {
-              // The timer is a little behind, so kick it forward
-              //TIM2->CNT = mPeriod - 1;
-              bsp_set_sotdma_timer_value(mPeriod - 1);
-            }
+            bsp_set_sotdma_timer_value(mPeriod - 1);
           else
-            {
-              // The timer is a little ahead, so pull it back
-              //TIM2->CNT = 0;
-              bsp_set_sotdma_timer_value(0);
-            }
+            bsp_set_sotdma_timer_value(0);
         }
     }
 
@@ -183,7 +237,6 @@ void GPS::onPPS()
       EventQueue::instance ().push(e);
     }
 }
-
 
 void GPS::processEvent(const Event &event)
 {
@@ -204,84 +257,105 @@ void GPS::processLine(const char* buff)
             actualHash ^= *c;
 
           if ( reportedHash == actualHash )
-            {
-              parseSentence(buff);
-            }
-
+            parseSentence(buff);
         }
     }
+}
+
+bool GPS::isValidNmeaDate(const char *ddmmyy)
+{
+  if ( !ddmmyy || strlen(ddmmyy) < 6 )
+    return false;
+
+  int year = Utils::toInt(std::string(ddmmyy + 4, 2));
+  return year >= 24;
+}
+
+void GPS::applyFix(float lat, float lng, float speed, float cog)
+{
+  bsp_gps_led_on();
+  mLat = lat;
+  mLng = lng;
+  mSpeed = speed;
+  mCOG = cog;
+
+  Event *e = EventPool::instance().newEvent(GPS_FIX_EVENT);
+  if ( e )
+    {
+      e->gpsFix.utc = mUTC;
+      e->gpsFix.lat = mLat;
+      e->gpsFix.lng = mLng;
+      e->gpsFix.speed = mSpeed;
+      e->gpsFix.cog = mCOG;
+      EventQueue::instance().push (e);
+    }
+}
+
+void GPS::parseRmc(const NMEASentence &sentence)
+{
+  const vector<string> &fields = sentence.fields ();
+
+  if (fields.size () < 10)
+    return;
+
+  if (fields[1].length () < 6 || fields[9].length () < 6)
+    return;
+
+  if ( !isValidNmeaDate(fields[9].c_str()) )
+    return;
+
+  const string &timestr = fields[1].substr (0, 6);
+  const string &datestr = fields[9].substr (0, 6);
+  mTime.tm_hour = Utils::toInt (timestr.substr (0, 2));
+  mTime.tm_min = Utils::toInt (timestr.substr (2, 2));
+  mTime.tm_sec = Utils::toInt (timestr.substr (4, 2));
+  mTime.tm_mday = Utils::toInt (datestr.substr (0, 2));
+  mTime.tm_mon = Utils::toInt (datestr.substr (2, 2)) - 1;
+  mTime.tm_year = 100 + Utils::toInt (datestr.substr (4, 2));
+  mUTC = mktime (&mTime);
+
+  const bool positionValid = fields[2].length() > 0 && fields[2][0] == 'A'
+      && fields[3].length() > 0 && fields[5].length() > 0;
+
+  if (mUTC && positionValid)
+    {
+      applyFix(
+          Utils::latitudeFromNMEA (fields[3], fields[4]),
+          Utils::longitudeFromNMEA (fields[5], fields[6]),
+          atof(fields[7].c_str()),
+          atof(fields[8].c_str()));
+    }
+}
+
+void GPS::parseGga(const NMEASentence &sentence)
+{
+  const vector<string> &fields = sentence.fields ();
+
+  if (fields.size () < 7)
+    return;
+
+  if (fields[6].empty() || Utils::toInt(fields[6]) < 1)
+    return;
+
+  if (fields[2].empty() || fields[4].empty())
+    return;
+
+  applyFix(
+      Utils::latitudeFromNMEA (fields[2], fields[3]),
+      Utils::longitudeFromNMEA (fields[4], fields[5]),
+      mSpeed,
+      mCOG);
 }
 
 void GPS::parseSentence(const char *buff)
 {
   NMEASentence sentence (buff);
-#ifdef MULTIPLEXED_OUTPUT
-  DataTerminal::instance ().write ("NMEA", buff);
-#else
-  DataTerminal::instance().write(buff);
-#endif
 
   if (sentence.code ().find ("RMC") == 2)
-    {
-      const vector<string> &fields = sentence.fields ();
-
-      /*
-       * Sometimes the GPS indicates errors with sentences like
-       * $GPRMC,1420$0*74\r\n
-       * Although the sentence structure is valid, its content is not what we expect.
-       *
-       * TODO: Should we consider the GPS non-functioning at this point and thus prevent transmission until it recovers?
-       */
-      if (fields.size () < 10)
-        return;
-
-      // GPS updates arrive even with no time or fix information, so ignore them if that's the case
-      if (fields[1].length () < 6 || fields[9].length () < 6)
-        {
-          // TODO: A loss of fix while the SOTDMA timer is active, MUST stop the timer
-          bsp_gps_led_off();
-          return;
-        }
-
-
-      // This is the time that corresponds to the previous PPS
-      const string &timestr = fields[1].substr (0, 6);
-      const string &datestr = fields[9].substr (0, 6);
-      mTime.tm_hour = Utils::toInt (timestr.substr (0, 2));
-      mTime.tm_min = Utils::toInt (timestr.substr (2, 2));
-      mTime.tm_sec = Utils::toInt (timestr.substr (4, 2));
-      mTime.tm_mday = Utils::toInt (datestr.substr (0, 2));
-      mTime.tm_mon = Utils::toInt (datestr.substr (2, 2)) - 1; // Month is 0-based
-      mTime.tm_year = 100 + Utils::toInt (datestr.substr (4, 2)); // Year is 1900-based
-      mUTC = mktime (&mTime);
-
-      // Do we have a fix?
-      if (mUTC && sentence.fields()[3].length() > 0 && sentence.fields()[5].length() > 0)
-        {
-          bsp_gps_led_on();
-          mLat = Utils::latitudeFromNMEA (sentence.fields()[3], sentence.fields()[4]);
-          mLng = Utils::longitudeFromNMEA (sentence.fields()[5], sentence.fields()[6]);
-          mSpeed = atof(sentence.fields()[7].c_str());
-          mCOG = atof(sentence.fields()[8].c_str());
-          Event *e = EventPool::instance().newEvent(GPS_FIX_EVENT);
-          if ( e )
-            {
-              Event &event = *e;
-              event.gpsFix.utc = mUTC;
-              event.gpsFix.lat = mLat;
-              event.gpsFix.lng = mLng;
-              event.gpsFix.speed = mSpeed;
-              event.gpsFix.cog = mCOG;
-              EventQueue::instance().push (e);
-            }
-        }
-      else
-        {
-          bsp_gps_led_off();
-        }
-    }
+    parseRmc(sentence);
+  else if (sentence.code ().find ("GGA") == 2)
+    parseGga(sentence);
 }
-
 
 void GPS::startTimer()
 {
@@ -295,7 +369,6 @@ void GPS::stopTimer()
   bsp_stop_sotdma_timer();
 }
 
-
 void GPS::onTimerIRQ()
 {
   if ( mStarted )
@@ -304,7 +377,6 @@ void GPS::onTimerIRQ()
       if ( mSlotNumber == 2250 )
         mSlotNumber = 0;
 
-      // Delegates need real-time information
       if ( mDelegate )
         mDelegate->timeSlotStarted(mSlotNumber);
     }
@@ -324,5 +396,4 @@ void gnssSOTDMACB()
 {
   GPS::instance().onTimerIRQ();
 }
-
 

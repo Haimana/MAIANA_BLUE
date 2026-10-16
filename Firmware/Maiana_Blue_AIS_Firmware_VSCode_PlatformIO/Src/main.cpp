@@ -87,6 +87,7 @@ void mainLoop()
   while (1)
     {
       EventQueue::instance().dispatch();
+      GPS::instance().drainEcho();
 #if ENABLE_WDT
       bsp_refresh_wdt();
 #endif

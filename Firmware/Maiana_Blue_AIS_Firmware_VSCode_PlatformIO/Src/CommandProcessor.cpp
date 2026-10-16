@@ -154,6 +154,7 @@ void CommandProcessor::processCommand(const char *buff)
       station.magic = STATION_DATA_MAGIC;
 
       Configuration::instance().writeStationData(station);
+      TXScheduler::instance().reloadStationData();
     }
   else if ( s.find("station?") == 0 )
     {
@@ -170,11 +171,13 @@ void CommandProcessor::processCommand(const char *buff)
   else if ( s.find("erase station") == 0 )
     {
       Configuration::instance().eraseStationData();
+      TXScheduler::instance().reloadStationData();
       Configuration::instance().reportStationData();
     }
   else if ( s.find("factory reset") == 0 )
     {
       Configuration::instance().factoryReset();
+      TXScheduler::instance().reloadStationData();
       Configuration::instance().reportStationData();
     }
   else if ( s.find("tx test") == 0 )

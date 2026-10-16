@@ -63,6 +63,11 @@ void TXScheduler::init()
     reportTXStatus();
 }
 
+void TXScheduler::reloadStationData()
+{
+  Configuration::instance().readStationData(mStationData);
+}
+
 TXScheduler::~TXScheduler ()
 {
 }
