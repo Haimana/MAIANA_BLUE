@@ -20,6 +20,7 @@
 
 #include "RadioManager.hpp"
 #include "NoiseFloorDetector.hpp"
+#include "Configuration.hpp"
 #include "bsp.hpp"
 #include "TXErrors.h"
 
@@ -166,12 +167,13 @@ void RadioManager::processEvent(const Event &e)
       // The transceiver will switch channel if the packet channel is different
       mTransceiverIC->assignTXPacket(packet);
     }
-  else if ( mUTC - mStartTime >= 3600 )
+  else if ( Configuration::instance().isHourlyRebootEnabled() &&
+            mUTC - mStartTime >= 3600 )
     {
       /**
        * For some reason, RX performance seems to go downhill after many hours
        * of continuous operation, so the easiest remedy is to reboot every hour.
-       * The impact of this is pretty small.
+       * Optional via `hourlyreboot on|off` (default on).
        */
 
       bsp_reboot();

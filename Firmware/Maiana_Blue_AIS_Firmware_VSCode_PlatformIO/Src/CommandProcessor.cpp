@@ -98,6 +98,9 @@ static void skipToKnownCommand(string &s)
       "station?",
       "sys?",
       "nmea?",
+      "hourlyreboot on",
+      "hourlyreboot off",
+      "hourlyreboot?",
       "dfu",
       "erase station",
       "factory reset",
@@ -148,6 +151,8 @@ void CommandProcessor::processCommand(const char *buff)
       DataTerminal::instance().write("  factory reset                       - Reset all settings to factory defaults\r\n");
       DataTerminal::instance().write("  sys?                                - Report system data (FW/HW versions, uptime)\r\n");
       DataTerminal::instance().write("  nmea?                               - Report NMEA path diagnostics ($PAINMEA)\r\n");
+      DataTerminal::instance().write("  hourlyreboot on|off                 - Enable/disable hourly self-reboot ($PAIHRB)\r\n");
+      DataTerminal::instance().write("  hourlyreboot?                       - Report hourly-reboot setting and uptime ($PAIHRB)\r\n");
       DataTerminal::instance().write("  reboot                              - Reboot the device\r\n");
       DataTerminal::instance().write("  dfu                                 - Jump to bootloader mode\r\n");
       DataTerminal::instance().write("  cli                                 - Reboot into dedicated CLI mode\r\n");
@@ -208,6 +213,20 @@ void CommandProcessor::processCommand(const char *buff)
     {
       Configuration::instance().reportSystemData();
     }
+  else if ( s.find("hourlyreboot on") == 0 )
+    {
+      Configuration::instance().setHourlyReboot(true);
+      Configuration::instance().reportHourlyReboot();
+    }
+  else if ( s.find("hourlyreboot off") == 0 )
+    {
+      Configuration::instance().setHourlyReboot(false);
+      Configuration::instance().reportHourlyReboot();
+    }
+  else if ( s.find("hourlyreboot?") == 0 )
+    {
+      Configuration::instance().reportHourlyReboot();
+    }
   else if ( s.find("nmea?") == 0 )
     {
       // Write directly. Queuing PROPR_NMEA_SENTENCE through the 10-deep thread
@@ -262,6 +281,7 @@ void CommandProcessor::processCommand(const char *buff)
       Configuration::instance().factoryReset();
       TXScheduler::instance().reloadStationData();
       Configuration::instance().reportStationData();
+      Configuration::instance().reportHourlyReboot();
     }
   else if ( s.find("tx test") == 0 )
     {

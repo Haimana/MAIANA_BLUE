@@ -26,6 +26,7 @@
 #include <cstring>
 #include <bsp/bsp.hpp>
 #include "bsp.hpp"
+#include "DataTerminal.hpp"
 
 
 // These are not defined in ANY CMSIS or HAL header, WTF???
@@ -54,28 +55,34 @@ Configuration::Configuration()
 void Configuration::init()
 {
   bool cliBootMode = *(uint32_t*)BOOTMODE_ADDRESS == CLI_FLAG_MAGIC;
-  
+
+  bsp_read_config_flags(&mFlags);
+
   if ( !cliBootMode )
     {
       reportSystemData();
       reportStationData();
+      reportHourlyReboot();
     }
+}
 
-  bsp_read_config_flags(&mFlags);
+void Configuration::ensureFlags()
+{
+  if ( mFlags.magic != CONFIG_FLAGS_MAGIC )
+    mFlags = {CONFIG_FLAGS_MAGIC, 0, {0}};
 }
 
 void Configuration::enableTX()
 {
-  // For now, the only flag in use is a TX switch bit which is set to 0
-  mFlags = {CONFIG_FLAGS_MAGIC, 0, {0}};
+  ensureFlags();
+  mFlags.flags[0] &= ~CONFIG_FLAG_TX_INHIBIT;
   bsp_write_config_flags(mFlags);
 }
 
 void Configuration::disableTX()
 {
-  // For now, the only flag in use is a TX switch bit which is set to 1
-  mFlags = {CONFIG_FLAGS_MAGIC, 0, {0}};
-  mFlags.flags[0] = 0x01;
+  ensureFlags();
+  mFlags.flags[0] |= CONFIG_FLAG_TX_INHIBIT;
   bsp_write_config_flags(mFlags);
 }
 
@@ -84,8 +91,35 @@ bool Configuration::isTXEnabled()
   if ( mFlags.magic != CONFIG_FLAGS_MAGIC )
     return true;
 
-  // Bit 0 in word 0 inhibits transmission
-  return (mFlags.flags[0] & 0x01) == 0;
+  return (mFlags.flags[0] & CONFIG_FLAG_TX_INHIBIT) == 0;
+}
+
+void Configuration::setHourlyReboot(bool enabled)
+{
+  ensureFlags();
+  if ( enabled )
+    mFlags.flags[0] &= ~CONFIG_FLAG_HRB_INHIBIT;
+  else
+    mFlags.flags[0] |= CONFIG_FLAG_HRB_INHIBIT;
+  bsp_write_config_flags(mFlags);
+}
+
+bool Configuration::isHourlyRebootEnabled() const
+{
+  if ( mFlags.magic != CONFIG_FLAGS_MAGIC )
+    return true;
+
+  return (mFlags.flags[0] & CONFIG_FLAG_HRB_INHIBIT) == 0;
+}
+
+void Configuration::reportHourlyReboot()
+{
+  char line[64];
+  snprintf(line, sizeof line, "$PAIHRB,%u,%lu*",
+      isHourlyRebootEnabled() ? 1u : 0u,
+      (unsigned long)(HAL_GetTick() / 1000u));
+  Utils::completeNMEA(line);
+  DataTerminal::instance().write(line);
 }
 
 const char *Configuration::hwRev()
