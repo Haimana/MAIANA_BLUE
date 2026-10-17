@@ -22,6 +22,7 @@
 #include "bsp.hpp"
 #include <stm32l4xx_hal.h>
 #include "printf_serial.h"
+#include "UartQuiet.hpp"
 #include <string.h>
 #include <stdio.h>
 
@@ -905,7 +906,11 @@ extern "C"
     if ( isr & USART_ISR_RXNE )
       {
         char c = (char)USART1->RDR;
-        if ( terminalInputCallback )
+        if ( gUart1RxMute )
+          {
+            gUart1RxDiscard++;
+          }
+        else if ( terminalInputCallback )
           terminalInputCallback(c);
       }
   }

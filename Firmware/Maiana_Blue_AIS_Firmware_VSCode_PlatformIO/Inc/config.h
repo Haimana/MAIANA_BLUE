@@ -25,7 +25,7 @@
 #include "TXPowerSettings.h"
 
 
-#define FW_REV                        "4.5.6"
+#define FW_REV                        "4.5.7"
 
 /*
  * Defining this symbol forces all output (NMEA + debug) to a high-speed USART for tunneling to an application that demuxes it.
@@ -78,6 +78,17 @@
 // The spec calls for Class B transmitters to listen for the first 20 bits of each frame before transmitting.
 // It takes the Si4463 a few bits' time to switch from RX to TX, so I arbitrarily picked the 12th bit instead.
 #define CCA_SLOT_BIT                  11
+
+/*
+ * USART1 (host/ESP32/USB) quiet window around own AIS TX. RF coupling during
+ * PA-on was corrupting in-flight NMEA (~1 FE per TX). Do not start a new
+ * sentence if it cannot finish before the next possible CCA bit. Pre covers
+ * an 82-char line at 38400 (~21 ms) plus margin. Post covers PA ramp-down
+ * and supply settling. Total quiet is typically ~55-65 ms per TX.
+ */
+#define UART_QUIET_PRE_TX_MS          30
+#define UART_QUIET_POST_TX_MS          8
+#define UART_QUIET_HOLD_BUF          512
 
 
 #define BOOTMODE_ADDRESS              0x20009C00

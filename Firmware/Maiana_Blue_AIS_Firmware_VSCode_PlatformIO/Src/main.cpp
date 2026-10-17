@@ -25,6 +25,7 @@
 #include "GPS.hpp"
 #include "LEDManager.hpp"
 #include "CommandProcessor.hpp"
+#include "UartQuiet.hpp"
 #include "bsp.hpp"
 
 
@@ -87,8 +88,10 @@ void mainLoop()
   while (1)
     {
       GPS::instance().pollRX();
+      UartQuiet::instance().poll();
       EventQueue::instance().dispatch();
       GPS::instance().drainEcho();
+      UartQuiet::instance().poll();
 #if ENABLE_WDT
       bsp_refresh_wdt();
 #endif

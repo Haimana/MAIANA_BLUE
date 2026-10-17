@@ -28,6 +28,7 @@
 #include "TXScheduler.hpp"
 #include "bsp.hpp"
 #include "GPS.hpp"
+#include "UartQuiet.hpp"
 #include "RadioManager.hpp"
 #include "EZRadioPRO.h"
 #include <stdlib.h>
@@ -211,9 +212,9 @@ void CommandProcessor::processCommand(const char *buff)
     {
       // Write directly. Queuing PROPR_NMEA_SENTENCE through the 10-deep thread
       // pool silently dropped replies under AIS load (~40% miss in the field).
-      char line[192];
+      char line[256];
       snprintf(line, sizeof line,
-          "$PAINMEA,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu*",
+          "$PAINMEA,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu*",
           (unsigned long)bsp_gnss_ore_count(),
           (unsigned long)bsp_uart1_ore_count(),
           (unsigned long)GPS::instance().droppedChecksumCount(),
@@ -226,7 +227,12 @@ void CommandProcessor::processCommand(const char *buff)
           (unsigned long)bsp_uart1_ne_count(),
           (unsigned long)bsp_uart1_pe_count(),
           (unsigned long)DataTerminal::instance().commandDropCount(),
-          (unsigned long)EventPool::instance().allocFailCount());
+          (unsigned long)EventPool::instance().allocFailCount(),
+          (unsigned long)UartQuiet::instance().quietWindows(),
+          (unsigned long)UartQuiet::instance().holdBytes(),
+          (unsigned long)UartQuiet::instance().holdMax(),
+          (unsigned long)UartQuiet::instance().rxDiscarded(),
+          (unsigned long)UartQuiet::instance().outputDrops());
       Utils::completeNMEA(line);
       DataTerminal::instance().write(line);
     }

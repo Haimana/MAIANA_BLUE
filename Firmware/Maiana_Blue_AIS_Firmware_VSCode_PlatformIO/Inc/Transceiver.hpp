@@ -24,6 +24,7 @@
 #include "Receiver.hpp"
 #include "TXPacket.hpp"
 #include "Events.hpp"
+#include <stdint.h>
 #include <map>
 
 class Transceiver : public Receiver, public EventConsumer
@@ -44,6 +45,7 @@ public:
   void timeSlotStarted(uint32_t slot);
   void assignTXPacket(TXPacket *p);
   TXPacket *assignedTXPacket();
+  uint32_t msUntilPossibleTx() const;
   void startReceiving(VHFChannel channel, bool reconfigGPIOs);
   void transmitCW(VHFChannel channel);
   void processEvent(const Event &);

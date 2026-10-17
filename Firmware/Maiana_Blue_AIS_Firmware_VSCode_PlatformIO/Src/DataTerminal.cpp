@@ -22,6 +22,7 @@
 #include "Events.hpp"
 #include "Utils.hpp"
 #include "GPS.hpp"
+#include "UartQuiet.hpp"
 #include "bsp.hpp"
 #include <ctype.h>
 
@@ -74,10 +75,10 @@ void DataTerminal::processEvent(const Event &e)
 void DataTerminal::write(const char *cls, const char* s)
 {
   GPS::instance().flushEchoLine();
-  bsp_write_char('[');
-  bsp_write_string(cls);
-  bsp_write_char(']');
-  bsp_write_string(s);
+  UartQuiet::instance().write("[");
+  UartQuiet::instance().write(cls);
+  UartQuiet::instance().write("]");
+  UartQuiet::instance().write(s);
 }
 
 #else
@@ -85,7 +86,7 @@ void DataTerminal::write(const char *cls, const char* s)
 void DataTerminal::write(const char* s)
 {
   GPS::instance().flushEchoLine();
-  bsp_write_string(s);
+  UartQuiet::instance().write(s);
 }
 #endif
 

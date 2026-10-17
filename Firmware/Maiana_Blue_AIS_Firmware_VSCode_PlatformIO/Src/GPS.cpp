@@ -23,6 +23,7 @@
 #include "NMEASentence.hpp"
 #include "Utils.hpp"
 #include "EventQueue.hpp"
+#include "UartQuiet.hpp"
 #include "bsp.hpp"
 #include <stm32l4xx_hal.h>
 #include <stdio.h>
@@ -203,7 +204,7 @@ void GPS::onRX(char c)
 
 static void echoWriteChar(char c)
 {
-  bsp_write_char(c);
+  UartQuiet::instance().writeCharRaw(c);
   sEchoMidLine = (c != '\n');
 }
 
@@ -236,6 +237,9 @@ void GPS::drainEcho()
   for ( int n = 0; n < GPS_ECHO_DRAIN_LINES; ++n )
     {
       if ( sEchoTail == sEchoHead )
+        return;
+
+      if ( !sEchoMidLine && !UartQuiet::instance().canStartLine() )
         return;
 
       if ( !sEchoMidLine && !bsp_uart1_can_write() )

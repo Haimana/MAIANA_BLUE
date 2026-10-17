@@ -28,6 +28,8 @@
 #include "TXErrors.h"
 #include <stdio.h>
 #include "TXScheduler.hpp"
+#include "config.h"
+#include "CircularQueue.hpp"
 
 Transceiver::Transceiver(GPIO_TypeDef *sdnPort, uint32_t sdnPin, GPIO_TypeDef *csPort,
     uint32_t csPin, GPIO_TypeDef *dataPort, uint32_t dataPin,
@@ -192,6 +194,44 @@ void Transceiver::assignTXPacket(TXPacket *p)
 TXPacket* Transceiver::assignedTXPacket()
 {
   return mTXPacket;
+}
+
+uint32_t Transceiver::msUntilPossibleTx() const
+{
+  if ( gRadioState == RADIO_TRANSMITTING )
+    return 0;
+
+  // Snapshot ISR-owned fields; do not add work to the bit-clock path.
+  PrimaskGuard lock;
+  TXPacket *p = mTXPacket;
+  if ( !p )
+    return 0xffffffff;
+
+  const bool test = p->isTestPacket();
+  const time_t ts = p->timestamp();
+  const time_t utc = mUTC;
+  const time_t last = mLastTXTime;
+  int bit = mSlotBitNumber;
+
+  if ( !test )
+    {
+      if ( utc && ts && utc - ts >= MIN_MSG_18_TX_INTERVAL )
+        return 0xffffffff;
+      if ( last && utc - last < MIN_TX_INTERVAL )
+        return 0xffffffff;
+    }
+
+  if ( bit < 0 )
+    bit = 0;
+  bit %= 256;
+
+  int bitsUntil;
+  if ( bit < CCA_SLOT_BIT )
+    bitsUntil = CCA_SLOT_BIT - bit;
+  else
+    bitsUntil = (256 - bit) + CCA_SLOT_BIT;
+
+  return (uint32_t)((bitsUntil * 1000 + 9599) / 9600);
 }
 
 /**
