@@ -27,6 +27,7 @@
 #include "Utils.hpp"
 #include "EventQueue.hpp"
 #include "DataTerminal.hpp"
+#include "GPS.hpp"
 
 static char __buffer[128];
 
@@ -42,6 +43,7 @@ void printf_serial_now(const char *format, ...)
   vsnprintf(__buffer, sizeof __buffer, format, list);
   va_end(list);
 
+  GPS::instance().flushEchoLine();
   bsp_write_string(__buffer);
 }
 
@@ -70,6 +72,7 @@ void printf_serial(const char *format, ...)
 #ifdef MULTIPLEXED_OUTPUT
       DataTerminal::instance().write("DEBUG", __buffer);
 #else
+      GPS::instance().flushEchoLine();
       bsp_write_string(__buffer);
 #endif
     }

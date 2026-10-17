@@ -21,6 +21,7 @@
 #include "DataTerminal.hpp"
 #include "Events.hpp"
 #include "Utils.hpp"
+#include "GPS.hpp"
 #include "bsp.hpp"
 
 static char __rxbuff[80];
@@ -80,6 +81,7 @@ void DataTerminal::write(const char *cls, const char* s)
 
 void DataTerminal::write(const char* s)
 {
+  GPS::instance().flushEchoLine();
   bsp_write_string(s);
 }
 #endif

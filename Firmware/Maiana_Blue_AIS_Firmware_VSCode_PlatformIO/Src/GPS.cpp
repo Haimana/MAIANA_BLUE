@@ -35,15 +35,17 @@ void gnss1PPSCB();
 void gnssSOTDMACB();
 
 // LC76G default output is ~1.5KB/s (1Hz burst). USART1 at 38400 (~3.8KB/s) can
-// relay the full stream if echo is non-blocking and nav parsing stays lightweight.
+// relay the full stream. Drain complete lines only so AIVDM/$PAI cannot land
+// mid-sentence (that was the ESP32 "glue" class).
 #define GPS_ECHO_BUF_SIZE           2560
-#define GPS_ECHO_DRAIN_MAX          48
+#define GPS_ECHO_DRAIN_LINES        2
 
 static char sEchoBuf[GPS_ECHO_BUF_SIZE];
 static volatile uint16_t sEchoHead = 0;
 static volatile uint16_t sEchoTail = 0;
 static volatile uint32_t sDroppedChecksum = 0;
 static volatile uint32_t sEchoOverflow = 0;
+static bool sEchoMidLine = false;
 
 static void echoPush(char c)
 {
@@ -199,18 +201,49 @@ void GPS::onRX(char c)
     }
 }
 
+static void echoWriteChar(char c)
+{
+  bsp_write_char(c);
+  sEchoMidLine = (c != '\n');
+}
+
+void GPS::flushEchoLine()
+{
+  if ( !sEchoMidLine )
+    return;
+
+  while ( sEchoTail != sEchoHead )
+    {
+      char c = sEchoBuf[sEchoTail];
+      sEchoTail = (uint16_t)((sEchoTail + 1) % GPS_ECHO_BUF_SIZE);
+      echoWriteChar(c);
+      if ( c == '\n' )
+        return;
+    }
+
+  sEchoMidLine = false;
+}
+
 void GPS::drainEcho()
 {
-  for ( int i = 0; i < GPS_ECHO_DRAIN_MAX; ++i )
+  // Yield between sentences, never in the middle of one. A long GSV line is
+  // ~21 ms at 38400; dispatch() can emit AIVDM only after '\n'.
+  for ( int n = 0; n < GPS_ECHO_DRAIN_LINES; ++n )
     {
       if ( sEchoTail == sEchoHead )
         return;
 
-      if ( !bsp_uart1_can_write() )
+      if ( !sEchoMidLine && !bsp_uart1_can_write() )
         return;
 
-      bsp_write_char(sEchoBuf[sEchoTail]);
-      sEchoTail = (uint16_t)((sEchoTail + 1) % GPS_ECHO_BUF_SIZE);
+      while ( sEchoTail != sEchoHead )
+        {
+          char c = sEchoBuf[sEchoTail];
+          sEchoTail = (uint16_t)((sEchoTail + 1) % GPS_ECHO_BUF_SIZE);
+          echoWriteChar(c);
+          if ( c == '\n' )
+            break;
+        }
     }
 }
 
