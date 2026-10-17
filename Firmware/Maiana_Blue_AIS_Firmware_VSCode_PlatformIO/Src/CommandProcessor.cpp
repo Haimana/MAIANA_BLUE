@@ -213,8 +213,12 @@ void CommandProcessor::processCommand(const char *buff)
       // Write directly. Queuing PROPR_NMEA_SENTENCE through the 10-deep thread
       // pool silently dropped replies under AIS load (~40% miss in the field).
       char line[256];
+      // 1 usart2_ore 2 usart1_ore 3 csum_drop 4 echo_ovf 5 queue_drop
+      // 6-8 usart2 fe/ne/pe 9-11 usart1 fe/ne/pe 12 cmd_drop 13 pool_drop
+      // 14 quiet_windows 15 hold_bytes 16 hold_max 17 rx_discarded 18 out_drop
+      // 19 hold_max_ms 20 cap_closes
       snprintf(line, sizeof line,
-          "$PAINMEA,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu*",
+          "$PAINMEA,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu*",
           (unsigned long)bsp_gnss_ore_count(),
           (unsigned long)bsp_uart1_ore_count(),
           (unsigned long)GPS::instance().droppedChecksumCount(),
@@ -232,7 +236,9 @@ void CommandProcessor::processCommand(const char *buff)
           (unsigned long)UartQuiet::instance().holdBytes(),
           (unsigned long)UartQuiet::instance().holdMax(),
           (unsigned long)UartQuiet::instance().rxDiscarded(),
-          (unsigned long)UartQuiet::instance().outputDrops());
+          (unsigned long)UartQuiet::instance().outputDrops(),
+          (unsigned long)UartQuiet::instance().holdMaxMs(),
+          (unsigned long)UartQuiet::instance().capCloses());
       Utils::completeNMEA(line);
       DataTerminal::instance().write(line);
     }

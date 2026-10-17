@@ -36,17 +36,24 @@ public:
   uint32_t holdMax() const;
   uint32_t rxDiscarded() const;
   uint32_t outputDrops() const;
+  uint32_t holdMaxMs() const;
+  uint32_t capCloses() const;
 
 private:
   UartQuiet();
-  bool computeHold();
-  void enterHold();
+  bool wantHold(uint32_t now);
+  void enterHold(uint32_t now);
+  void closeHold(uint32_t now, bool byCap);
   void flushHold();
-  void holdPush(char c);
+  void holdPushSentence(const char *s);
+  void noteDuration(uint32_t now);
+  uint32_t msUntilTx() const;
 
   bool mHolding;
+  bool mBlocked;
   bool mSawTx;
   bool mMidLine;
+  uint32_t mHoldStart;
   uint32_t mPostUntil;
   uint16_t mHoldLen;
   uint32_t mWindows;
@@ -54,6 +61,8 @@ private:
   uint32_t mHoldMax;
   uint32_t mRxDiscard;
   uint32_t mOutDrop;
+  uint32_t mHoldMaxMs;
+  uint32_t mCapCloses;
   char mHold[UART_QUIET_HOLD_BUF];
 };
 

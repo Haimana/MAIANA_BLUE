@@ -25,7 +25,7 @@
 #include "TXPowerSettings.h"
 
 
-#define FW_REV                        "4.5.7"
+#define FW_REV                        "4.5.8"
 
 /*
  * Defining this symbol forces all output (NMEA + debug) to a high-speed USART for tunneling to an application that demuxes it.
@@ -81,13 +81,16 @@
 
 /*
  * USART1 (host/ESP32/USB) quiet window around own AIS TX. RF coupling during
- * PA-on was corrupting in-flight NMEA (~1 FE per TX). Do not start a new
- * sentence if it cannot finish before the next possible CCA bit. Pre covers
- * an 82-char line at 38400 (~21 ms) plus margin. Post covers PA ramp-down
- * and supply settling. Total quiet is typically ~55-65 ms per TX.
+ * PA-on was corrupting in-flight NMEA (~1 FE per TX).
+ *
+ * Class B CS can keep a packet assigned for seconds while CCA fails. The next
+ * CCA bit is then always <= one slot (~27 ms), so PRE alone would hold USART1
+ * indefinitely (4.5.7: echo_ovf 26k, 12 s GNSS lag). MAX caps each attempt.
+ * After a cap close, do not reopen on PRE; only on actual RADIO_TRANSMITTING.
  */
 #define UART_QUIET_PRE_TX_MS          30
 #define UART_QUIET_POST_TX_MS          8
+#define UART_QUIET_MAX_MS             90
 #define UART_QUIET_HOLD_BUF          512
 
 
