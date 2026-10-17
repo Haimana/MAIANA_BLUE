@@ -112,8 +112,11 @@ void termInputCB(char c)
     {
       __rxbuff[__rxpos++] = 0;
       Event *e = EventPool::instance().newEvent(COMMAND_EVENT);
-      strlcpy(e->command.buffer, __rxbuff, sizeof e->command.buffer);
-      EventQueue::instance().push(e);
+      if ( e )
+        {
+          strlcpy(e->command.buffer, __rxbuff, sizeof e->command.buffer);
+          EventQueue::instance().push(e);
+        }
       __rxpos = 0;
     }
 }

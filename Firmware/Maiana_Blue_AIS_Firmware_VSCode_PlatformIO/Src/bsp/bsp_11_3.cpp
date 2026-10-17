@@ -641,6 +641,13 @@ bool bsp_uart1_can_write()
   return (USART1->ISR & USART_ISR_TXE) != 0;
 }
 
+static volatile uint32_t sUsart1OreCount = 0;
+
+uint32_t bsp_uart1_ore_count()
+{
+  return sUsart1OreCount;
+}
+
 void bsp_write_char(char c)
 {
   USART_putc(USART1, c);
@@ -778,10 +785,22 @@ extern "C"
 
   void USART1_IRQHandler(void)
   {
-    if ( __HAL_UART_GET_IT(&huart1, UART_IT_RXNE) )
+    const uint32_t isr = USART1->ISR;
+
+    // ORE stays set after a RDR read and will retrigger RXNEIE. Clear error
+    // flags first, but do not discard RDR: on overrun the unread byte is still
+    // valid and RXNE is set. FE/NE/PE are cleared the same way so a bad CLI
+    // byte cannot lock the IRQ.
+    if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
       {
-        __HAL_UART_CLEAR_IT(&huart1, UART_IT_RXNE);
-        char c = USART1->RDR;
+        if ( isr & USART_ISR_ORE )
+          sUsart1OreCount++;
+        USART1->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
+      }
+
+    if ( isr & USART_ISR_RXNE )
+      {
+        char c = (char)USART1->RDR;
         if ( terminalInputCallback )
           terminalInputCallback(c);
       }
