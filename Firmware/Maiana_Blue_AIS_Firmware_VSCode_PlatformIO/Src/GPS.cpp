@@ -230,20 +230,60 @@ void GPS::pollRX()
   bsp_poll_gnss_rx();
 }
 
+static uint16_t echoPeekLineLen()
+{
+  if ( sEchoTail == sEchoHead )
+    return 0;
+
+  uint16_t i = sEchoTail;
+  uint16_t n = 0;
+  while ( i != sEchoHead )
+    {
+      n++;
+      if ( sEchoBuf[i] == '\n' )
+        return n;
+      i = (uint16_t)((i + 1) % GPS_ECHO_BUF_SIZE);
+    }
+
+  return 0;
+}
+
 void GPS::drainEcho()
 {
   // Yield between sentences, never in the middle of one. A long GSV line is
   // ~21 ms at 38400; dispatch() can emit AIVDM only after '\n'.
-  for ( int n = 0; n < GPS_ECHO_DRAIN_LINES; ++n )
+  // While a TX packet is pending, pack as many whole sentences as fit in
+  // the current free-slot window (then stop until the next CCA-no-TX).
+  static uint16_t sDeferTail = 0xffff;
+  const int maxLines = UartQuiet::instance().slotGated() ? 8 : GPS_ECHO_DRAIN_LINES;
+
+  for ( int n = 0; n < maxLines; ++n )
     {
       if ( sEchoTail == sEchoHead )
         return;
 
-      if ( !sEchoMidLine && !UartQuiet::instance().canStartLine() )
-        return;
+      if ( !sEchoMidLine )
+        {
+          const uint16_t len = echoPeekLineLen();
+          if ( len == 0 )
+            return;
 
-      if ( !sEchoMidLine && !bsp_uart1_can_write() )
-        return;
+          if ( !bsp_uart1_can_write() )
+            return;
+
+          if ( !UartQuiet::instance().canStartBytes(len) )
+            {
+              if ( sDeferTail != sEchoTail )
+                {
+                  sDeferTail = sEchoTail;
+                  UartQuiet::instance().noteDefer(len);
+                }
+              return;
+            }
+
+          sDeferTail = 0xffff;
+          UartQuiet::instance().noteStart();
+        }
 
       while ( sEchoTail != sEchoHead )
         {

@@ -25,7 +25,7 @@
 #include "TXPowerSettings.h"
 
 
-#define FW_REV                        "4.5.8"
+#define FW_REV                        "4.5.9"
 
 /*
  * Defining this symbol forces all output (NMEA + debug) to a high-speed USART for tunneling to an application that demuxes it.
@@ -80,17 +80,21 @@
 #define CCA_SLOT_BIT                  11
 
 /*
- * USART1 (host/ESP32/USB) quiet window around own AIS TX. RF coupling during
- * PA-on was corrupting in-flight NMEA (~1 FE per TX).
+ * USART1 (host/ESP32/USB) slot-aligned output around own AIS TX.
  *
- * Class B CS can keep a packet assigned for seconds while CCA fails. The next
- * CCA bit is then always <= one slot (~27 ms), so PRE alone would hold USART1
- * indefinitely (4.5.7: echo_ovf 26k, 12 s GNSS lag). MAX caps each attempt.
- * After a cap close, do not reopen on PRE; only on actual RADIO_TRANSMITTING.
+ * Class B CS may start TX at CCA_SLOT_BIT (11) of any later slot while a
+ * packet is assigned. A PRE mute cannot cover that (4.5.7 stalled for
+ * minutes; 4.5.8 capped at 90 ms, then TX started mid-sentence).
+ *
+ * While a packet is eligible, USART1 may only START a sentence after this
+ * slot's CCA did not transmit, and only if the sentence finishes before the
+ * next bit 11 plus SLOT_MARGIN. One slot = 256 bits @ 9600 (~26.67 ms).
+ * An 82-char 8N1 line is ~21.4 ms at 38400, so a free slot carries at least
+ * one sentence. No packet pending → free run. TX + POST still hold.
  */
-#define UART_QUIET_PRE_TX_MS          30
 #define UART_QUIET_POST_TX_MS          8
 #define UART_QUIET_MAX_MS             90
+#define UART_QUIET_SLOT_MARGIN_MS      3
 #define UART_QUIET_HOLD_BUF          512
 
 

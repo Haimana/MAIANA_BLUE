@@ -196,7 +196,7 @@ TXPacket* Transceiver::assignedTXPacket()
   return mTXPacket;
 }
 
-uint32_t Transceiver::msUntilPossibleTx() const
+uint32_t Transceiver::bitsUntilPossibleTx() const
 {
   if ( gRadioState == RADIO_TRANSMITTING )
     return 0;
@@ -221,17 +221,23 @@ uint32_t Transceiver::msUntilPossibleTx() const
         return 0xffffffff;
     }
 
-  if ( bit < 0 )
-    bit = 0;
-  bit %= 256;
+  // TX starts in the bit-clock ISR at CCA_SLOT_BIT (11) of this slot if
+  // CCA is clear. After that bit, the next start is bit 11 of the next slot.
+  if ( bit < 0 || bit > 255 )
+    return 0;
 
-  int bitsUntil;
-  if ( bit < CCA_SLOT_BIT )
-    bitsUntil = CCA_SLOT_BIT - bit;
-  else
-    bitsUntil = (256 - bit) + CCA_SLOT_BIT;
+  if ( bit <= CCA_SLOT_BIT )
+    return (uint32_t)(CCA_SLOT_BIT - bit);
 
-  return (uint32_t)((bitsUntil * 1000 + 9599) / 9600);
+  return (uint32_t)((256 - bit) + CCA_SLOT_BIT);
+}
+
+uint32_t Transceiver::msUntilPossibleTx() const
+{
+  const uint32_t bits = bitsUntilPossibleTx();
+  if ( bits == 0xffffffff )
+    return 0xffffffff;
+  return (uint32_t)((bits * 1000u + 9599u) / 9600u);
 }
 
 /**

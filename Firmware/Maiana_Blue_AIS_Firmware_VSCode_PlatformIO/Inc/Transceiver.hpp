@@ -46,6 +46,7 @@ public:
   void assignTXPacket(TXPacket *p);
   TXPacket *assignedTXPacket();
   uint32_t msUntilPossibleTx() const;
+  uint32_t bitsUntilPossibleTx() const;
   void startReceiving(VHFChannel channel, bool reconfigGPIOs);
   void transmitCW(VHFChannel channel);
   void processEvent(const Event &);
