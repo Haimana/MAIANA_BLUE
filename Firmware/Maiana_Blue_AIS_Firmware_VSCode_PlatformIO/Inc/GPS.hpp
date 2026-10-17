@@ -62,6 +62,7 @@ public:
 
 	void onIRQ(uint32_t mask, void *data);
 	void processEvent(const Event &event);
+	void pollRX();
 	void drainEcho();
 	void flushEchoLine();
 	uint32_t droppedChecksumCount() const;

@@ -224,6 +224,11 @@ void GPS::flushEchoLine()
   sEchoMidLine = false;
 }
 
+void GPS::pollRX()
+{
+  bsp_poll_gnss_rx();
+}
+
 void GPS::drainEcho()
 {
   // Yield between sentences, never in the middle of one. A long GSV line is

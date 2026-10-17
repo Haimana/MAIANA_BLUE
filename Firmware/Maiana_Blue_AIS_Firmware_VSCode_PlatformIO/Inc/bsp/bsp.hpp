@@ -41,6 +41,8 @@ void bsp_write_char(const char c);
 void bsp_write_string(const char *s);
 bool bsp_uart1_can_write();
 uint32_t bsp_uart1_ore_count();
+void bsp_poll_gnss_rx();
+uint32_t bsp_gnss_ore_count();
 void bsp_set_rx_mode();
 void bsp_set_tx_mode();
 void bsp_start_wdt();

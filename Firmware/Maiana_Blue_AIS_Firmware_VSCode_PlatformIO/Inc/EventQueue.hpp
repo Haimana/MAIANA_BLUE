@@ -49,6 +49,7 @@ public:
    * We push events here to be processed by the dispatching task
    */
   bool push(Event *event);
+  uint32_t droppedCount() const;
 
   /*
    * This method must be called repeatedly by an RTOS task or main() (never an ISR)
@@ -59,6 +60,7 @@ private:
   CircularQueue<Event*> mISRQueue;
   CircularQueue<Event*> mTaskQueue;
   map<EventConsumer *, uint32_t> mConsumers;
+  uint32_t mDropped;
 };
 
 #endif /* EVENTQUEUE_HPP_ */

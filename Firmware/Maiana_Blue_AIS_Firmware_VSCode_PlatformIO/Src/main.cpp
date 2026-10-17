@@ -86,6 +86,7 @@ void mainLoop()
 #endif
   while (1)
     {
+      GPS::instance().pollRX();
       EventQueue::instance().dispatch();
       GPS::instance().drainEcho();
 #if ENABLE_WDT

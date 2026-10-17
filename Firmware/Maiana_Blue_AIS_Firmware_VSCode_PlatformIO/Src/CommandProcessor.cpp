@@ -104,6 +104,7 @@ void CommandProcessor::processCommand(const char *buff)
       DataTerminal::instance().write("  erase station                       - Erase configured station data\r\n");
       DataTerminal::instance().write("  factory reset                       - Reset all settings to factory defaults\r\n");
       DataTerminal::instance().write("  sys?                                - Report system data (FW/HW versions, uptime)\r\n");
+      DataTerminal::instance().write("  nmea?                               - Report NMEA path diagnostics ($PAINMEA)\r\n");
       DataTerminal::instance().write("  reboot                              - Reboot the device\r\n");
       DataTerminal::instance().write("  dfu                                 - Jump to bootloader mode\r\n");
       DataTerminal::instance().write("  cli                                 - Reboot into dedicated CLI mode\r\n");
@@ -163,6 +164,20 @@ void CommandProcessor::processCommand(const char *buff)
   else if ( s.find("sys?") == 0 )
     {
       Configuration::instance().reportSystemData();
+    }
+  else if ( s.find("nmea?") == 0 )
+    {
+      Event *e = EventPool::instance().newEvent(PROPR_NMEA_SENTENCE);
+      if ( !e )
+        return;
+      sprintf(e->nmeaBuffer.sentence, "$PAINMEA,%lu,%lu,%lu,%lu,%lu*",
+          (unsigned long)bsp_gnss_ore_count(),
+          (unsigned long)bsp_uart1_ore_count(),
+          (unsigned long)GPS::instance().droppedChecksumCount(),
+          (unsigned long)GPS::instance().echoOverflowCount(),
+          (unsigned long)EventQueue::instance().droppedCount());
+      Utils::completeNMEA(e->nmeaBuffer.sentence);
+      EventQueue::instance().push(e);
     }
   else if ( s.find("dfu") == 0 )
     {

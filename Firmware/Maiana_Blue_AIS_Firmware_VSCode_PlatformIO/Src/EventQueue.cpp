@@ -22,6 +22,7 @@
 #include "printf_serial.h"
 #include "printf_serial.h"
 #include "Utils.hpp"
+#include "GPS.hpp"
 #include "bsp.hpp"
 #include "config.h"
 
@@ -33,7 +34,7 @@ EventQueue &EventQueue::instance()
 }
 
 EventQueue::EventQueue()
-  : mISRQueue(25), mTaskQueue(10)
+  : mISRQueue(25), mTaskQueue(10), mDropped(0)
 {
 }
 
@@ -47,6 +48,7 @@ bool EventQueue::push(Event *e)
     {
       if ( !mISRQueue.push(e) )
         {
+          mDropped++;
           EventPool::instance().deleteEvent(e);
           return false;
         }
@@ -55,12 +57,18 @@ bool EventQueue::push(Event *e)
     {
       if ( !mTaskQueue.push(e) )
         {
+          mDropped++;
           EventPool::instance().deleteEvent(e);
           return false;
         }
     }
 
   return true;
+}
+
+uint32_t EventQueue::droppedCount() const
+{
+  return mDropped;
 }
 
 void EventQueue::addObserver(EventConsumer *c, uint32_t eventMask)
@@ -92,6 +100,7 @@ void EventQueue::dispatch()
         }
 
       EventPool::instance().deleteEvent(e);
+      GPS::instance().pollRX();
 #if ENABLE_WDT
       bsp_refresh_wdt();
 #endif
@@ -108,6 +117,7 @@ void EventQueue::dispatch()
         }
 
       EventPool::instance().deleteEvent(e);
+      GPS::instance().pollRX();
 #if ENABLE_WDT
       bsp_refresh_wdt();
 #endif

@@ -44,6 +44,12 @@ IWDG_HandleTypeDef hiwdg;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart1;
 TIM_HandleTypeDef htim2;
+DMA_HandleTypeDef hdma_usart2_rx;
+
+#define GNSS_DMA_BUF_SIZE 1024
+static volatile uint8_t sGnssDmaBuf[GNSS_DMA_BUF_SIZE];
+static uint16_t sGnssDmaRead = 0;
+static volatile uint32_t sUsart2OreCount = 0;
 
 void SystemClock_Config();
 
@@ -232,11 +238,27 @@ void bsp_hw_init()
   huart2.AdvancedInit.AdvFeatureInit  = UART_ADVFEATURE_NO_INIT;
   HAL_UART_Init(&huart2);
 
-  // IRQ test 4.5.4: USART2=2 (above AIS) so SOTDMA/RX/TX bit-clock keep priority 1.
-  // At 115200 a byte arrives every ~87us; watch for merged NMEA ($GNRMC...$GNRMC).
-  HAL_NVIC_SetPriority(USART2_IRQn, 2, 0);
-  HAL_NVIC_EnableIRQ(USART2_IRQn);
-  __HAL_UART_ENABLE_IT(&huart2, UART_IT_RXNE);
+  // Polled circular DMA for LC76G RX. Radio bit-clock ISRs (prio 1) plus
+  // reportRSSI/SPI waits can exceed the 87 us USART2 character time and
+  // overrun a byte-IRQ receiver. DMA1 Ch6 / request 2 = USART2_RX on L432.
+  // No DMA or USART2 IRQ: the radio priorities stay untouched.
+  __HAL_RCC_DMA1_CLK_ENABLE();
+  hdma_usart2_rx.Instance                 = DMA1_Channel6;
+  hdma_usart2_rx.Init.Request             = DMA_REQUEST_2;
+  hdma_usart2_rx.Init.Direction           = DMA_PERIPH_TO_MEMORY;
+  hdma_usart2_rx.Init.PeriphInc           = DMA_PINC_DISABLE;
+  hdma_usart2_rx.Init.MemInc              = DMA_MINC_ENABLE;
+  hdma_usart2_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+  hdma_usart2_rx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;
+  hdma_usart2_rx.Init.Mode                = DMA_CIRCULAR;
+  hdma_usart2_rx.Init.Priority            = DMA_PRIORITY_HIGH;
+  if ( HAL_DMA_Init(&hdma_usart2_rx) != HAL_OK )
+    Error_Handler(0);
+
+  HAL_DMA_Start(&hdma_usart2_rx, (uint32_t)&USART2->RDR, (uint32_t)sGnssDmaBuf, GNSS_DMA_BUF_SIZE);
+  SET_BIT(USART2->CR3, USART_CR3_DMAR);
+  __HAL_UART_DISABLE_IT(&huart2, UART_IT_RXNE);
+  HAL_NVIC_DisableIRQ(USART2_IRQn);
 
   // TIM2 for SOTDMA (37.5Hz)
   uint32_t period = (SystemCoreClock / 37.5) - 1;
@@ -648,6 +670,35 @@ uint32_t bsp_uart1_ore_count()
   return sUsart1OreCount;
 }
 
+uint32_t bsp_gnss_ore_count()
+{
+  return sUsart2OreCount;
+}
+
+void bsp_poll_gnss_rx()
+{
+  if ( USART2->ISR & USART_ISR_ORE )
+    {
+      sUsart2OreCount++;
+      USART2->ICR = USART_ICR_ORECF;
+    }
+  if ( USART2->ISR & (USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
+    USART2->ICR = USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
+
+  const uint16_t write = (uint16_t)(GNSS_DMA_BUF_SIZE - (uint16_t)hdma_usart2_rx.Instance->CNDTR);
+  uint16_t n = 0;
+  while ( sGnssDmaRead != write && n < GNSS_DMA_BUF_SIZE )
+    {
+      char c = (char)sGnssDmaBuf[sGnssDmaRead];
+      sGnssDmaRead++;
+      if ( sGnssDmaRead >= GNSS_DMA_BUF_SIZE )
+        sGnssDmaRead = 0;
+      if ( gnssInputCallback )
+        gnssInputCallback(c);
+      ++n;
+    }
+}
+
 void bsp_write_char(char c)
 {
   USART_putc(USART1, c);
@@ -818,19 +869,13 @@ extern "C"
 
   void USART2_IRQHandler()
   {
-    if ( __HAL_UART_GET_FLAG(&huart2, UART_FLAG_ORE) )
-      {
-        __HAL_UART_CLEAR_FLAG(&huart2, UART_CLEAR_OREF);
-        (void)USART2->RDR;
-      }
-
-    if ( __HAL_UART_GET_IT(&huart2, UART_IT_RXNE) )
-      {
-        __HAL_UART_CLEAR_IT(&huart2, UART_IT_RXNE);
-        char c = (char)USART2->RDR;
-        if ( gnssInputCallback )
-          gnssInputCallback(c);
-      }
+    // USART2 NVIC is disabled; this is only a safety net. DMA owns RDR, so
+    // never read it here (that used to drop a valid byte on ORE).
+    const uint32_t isr = USART2->ISR;
+    if ( isr & USART_ISR_ORE )
+      sUsart2OreCount++;
+    if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
+      USART2->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
   }
 
 
