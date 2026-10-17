@@ -28,6 +28,7 @@ public:
   bool canStartLine();
   bool canStartBytes(uint16_t n);
   bool slotGated();
+  bool shouldSpin();
   void noteDefer(uint16_t n);
   void noteStart();
   bool rxMute();
@@ -71,6 +72,7 @@ private:
   uint32_t mHoldStart;
   uint32_t mPostUntil;
   uint32_t mDeferStart;
+  uint32_t mOpenSince;
   uint16_t mHoldLen;
   uint32_t mWindows;
   uint32_t mHoldBytes;

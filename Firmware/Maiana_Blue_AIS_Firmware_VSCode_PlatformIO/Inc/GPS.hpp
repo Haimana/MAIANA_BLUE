@@ -67,6 +67,7 @@ public:
 	void flushEchoLine();
 	uint32_t droppedChecksumCount() const;
 	uint32_t echoOverflowCount() const;
+	bool echoPending() const;
 
 private:
 	GPS();

@@ -356,6 +356,11 @@ uint32_t GPS::echoOverflowCount() const
   return sEchoOverflow;
 }
 
+bool GPS::echoPending() const
+{
+  return sEchoTail != sEchoHead;
+}
+
 bool GPS::isValidNmeaDate(const char *ddmmyy)
 {
   if ( !ddmmyy || strlen(ddmmyy) < 6 )

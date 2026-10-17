@@ -23,7 +23,7 @@ UartQuiet &UartQuiet::instance()
 
 UartQuiet::UartQuiet()
   : mHolding(false), mSawTx(false), mMidLine(false),
-    mHoldStart(0), mPostUntil(0), mDeferStart(0), mHoldLen(0),
+    mHoldStart(0), mPostUntil(0), mDeferStart(0), mOpenSince(0), mHoldLen(0),
     mWindows(0), mHoldBytes(0), mHoldMax(0),
     mRxDiscard(0), mOutDrop(0), mHoldMaxMs(0), mCapCloses(0),
     mSlotSent(0), mSlotDefer(0), mMaxOutLatMs(0), mSlotNofit(0)
@@ -193,10 +193,32 @@ void UartQuiet::poll()
     }
   else if ( mHoldLen && !mMidLine )
     {
+      if ( holdOpen() )
+        {
+          if ( mOpenSince == 0 )
+            mOpenSince = now;
+          else if ( (now - mOpenSince) >= (uint32_t)UART_QUIET_OPEN_HOLD_MS )
+            {
+              holdPushSentence("\r\n");
+              mOpenSince = 0;
+            }
+        }
+      else
+        mOpenSince = 0;
+
       flushHoldFitting();
     }
 
   gUart1RxMute = (mHolding || tx) ? 1 : 0;
+}
+
+bool UartQuiet::shouldSpin()
+{
+  if ( mHoldLen && !mHolding )
+    return true;
+  if ( mDeferStart != 0 && !mHolding )
+    return true;
+  return false;
 }
 
 bool UartQuiet::rxMute()
@@ -241,6 +263,10 @@ void UartQuiet::holdPushSentence(const char *s)
   mHoldBytes += (uint32_t)n;
   if ( mHoldLen > mHoldMax )
     mHoldMax = mHoldLen;
+  if ( holdOpen() && mOpenSince == 0 )
+    mOpenSince = HAL_GetTick();
+  else if ( !holdOpen() )
+    mOpenSince = 0;
 }
 
 bool UartQuiet::holdOpen() const

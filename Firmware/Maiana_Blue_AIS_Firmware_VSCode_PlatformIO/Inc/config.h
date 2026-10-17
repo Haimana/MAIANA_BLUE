@@ -25,7 +25,7 @@
 #include "TXPowerSettings.h"
 
 
-#define FW_REV                        "4.5.10"
+#define FW_REV                        "4.5.11"
 
 /*
  * Defining this symbol forces all output (NMEA + debug) to a high-speed USART for tunneling to an application that demuxes it.
@@ -91,10 +91,16 @@
  * next bit 11 plus SLOT_MARGIN. One slot = 256 bits @ 9600 (~26.67 ms).
  * An 82-char 8N1 line is ~21.4 ms at 38400, so a free slot carries at least
  * one sentence. No packet pending → free run. TX + POST still hold.
+ *
+ * 4.5.9 field: max_out_lat_ms 553 with hold_max 374 — an AIVDM burst plus a
+ * GNSS 1 Hz dump (~20 long lines) while slot-gated, and a 3 ms margin left
+ * only ~2 ms to start an 82-char GSV. Skip WFI while output is pending so
+ * the bit-12 window is not missed; close a split hold after OPEN_HOLD_MS.
  */
 #define UART_QUIET_POST_TX_MS          8
 #define UART_QUIET_MAX_MS             90
-#define UART_QUIET_SLOT_MARGIN_MS      3
+#define UART_QUIET_SLOT_MARGIN_MS      2
+#define UART_QUIET_OPEN_HOLD_MS       40
 #define UART_QUIET_HOLD_BUF          512
 
 

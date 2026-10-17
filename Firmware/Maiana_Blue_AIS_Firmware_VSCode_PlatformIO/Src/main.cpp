@@ -95,7 +95,10 @@ void mainLoop()
 #if ENABLE_WDT
       bsp_refresh_wdt();
 #endif
-      __WFI();
+      // Catch the ~few-ms post-CCA window. WFI across it plus a GNSS
+      // burst / AIVDM hold is what pushed max_out_lat_ms to ~0.5 s.
+      if ( !UartQuiet::instance().shouldSpin() && !GPS::instance().echoPending() )
+        __WFI();
     }
 }
 
