@@ -60,7 +60,7 @@ private:
   CircularQueue<Event*> mISRQueue;
   CircularQueue<Event*> mTaskQueue;
   map<EventConsumer *, uint32_t> mConsumers;
-  uint32_t mDropped;
+  volatile uint32_t mDropped;
 };
 
 #endif /* EVENTQUEUE_HPP_ */

@@ -71,6 +71,7 @@ void DataTerminal::processEvent(const Event &e)
 
 void DataTerminal::write(const char *cls, const char* s)
 {
+  GPS::instance().flushEchoLine();
   bsp_write_char('[');
   bsp_write_string(cls);
   bsp_write_char(']');
