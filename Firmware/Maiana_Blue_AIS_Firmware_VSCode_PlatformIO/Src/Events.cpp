@@ -61,7 +61,7 @@ EventPool &EventPool::instance()
 
 
 EventPool::EventPool()
-  : mISRPool(25), mThreadPool(10), mRXPool(20)
+  : mISRPool(25), mThreadPool(10), mRXPool(20), mAllocFail(0)
 {
 }
 
@@ -97,10 +97,18 @@ Event *EventPool::newEvent(EventType type)
   //if ( !result)
 
   if ( result == nullptr )
-    return result;
+    {
+      mAllocFail++;
+      return result;
+    }
 
   ASSERT_VALID_PTR(result);
   return result;
+}
+
+uint32_t EventPool::allocFailCount() const
+{
+  return mAllocFail;
 }
 
 void EventPool::deleteEvent(Event *event)

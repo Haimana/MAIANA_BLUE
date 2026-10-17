@@ -42,6 +42,7 @@ public:
 #else
   void write(const char* line);
 #endif
+  uint32_t commandDropCount() const;
 private:
   DataTerminal();
   void processCommand(const char*);

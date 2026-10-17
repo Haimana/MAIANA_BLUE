@@ -50,6 +50,9 @@ DMA_HandleTypeDef hdma_usart2_rx;
 static volatile uint8_t sGnssDmaBuf[GNSS_DMA_BUF_SIZE];
 static uint16_t sGnssDmaRead = 0;
 static volatile uint32_t sUsart2OreCount = 0;
+static volatile uint32_t sUsart2FeCount = 0;
+static volatile uint32_t sUsart2NeCount = 0;
+static volatile uint32_t sUsart2PeCount = 0;
 
 void SystemClock_Config();
 
@@ -664,10 +667,28 @@ bool bsp_uart1_can_write()
 }
 
 static volatile uint32_t sUsart1OreCount = 0;
+static volatile uint32_t sUsart1FeCount = 0;
+static volatile uint32_t sUsart1NeCount = 0;
+static volatile uint32_t sUsart1PeCount = 0;
 
 uint32_t bsp_uart1_ore_count()
 {
   return sUsart1OreCount;
+}
+
+uint32_t bsp_uart1_fe_count()
+{
+  return sUsart1FeCount;
+}
+
+uint32_t bsp_uart1_ne_count()
+{
+  return sUsart1NeCount;
+}
+
+uint32_t bsp_uart1_pe_count()
+{
+  return sUsart1PeCount;
 }
 
 uint32_t bsp_gnss_ore_count()
@@ -675,15 +696,41 @@ uint32_t bsp_gnss_ore_count()
   return sUsart2OreCount;
 }
 
+uint32_t bsp_gnss_fe_count()
+{
+  return sUsart2FeCount;
+}
+
+uint32_t bsp_gnss_ne_count()
+{
+  return sUsart2NeCount;
+}
+
+uint32_t bsp_gnss_pe_count()
+{
+  return sUsart2PeCount;
+}
+
+static void countUsart2Errors(uint32_t isr)
+{
+  if ( isr & USART_ISR_ORE )
+    sUsart2OreCount++;
+  if ( isr & USART_ISR_FE )
+    sUsart2FeCount++;
+  if ( isr & USART_ISR_NE )
+    sUsart2NeCount++;
+  if ( isr & USART_ISR_PE )
+    sUsart2PeCount++;
+}
+
 void bsp_poll_gnss_rx()
 {
-  if ( USART2->ISR & USART_ISR_ORE )
+  const uint32_t isr = USART2->ISR;
+  if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
     {
-      sUsart2OreCount++;
-      USART2->ICR = USART_ICR_ORECF;
+      countUsart2Errors(isr);
+      USART2->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
     }
-  if ( USART2->ISR & (USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
-    USART2->ICR = USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
 
   const uint16_t write = (uint16_t)(GNSS_DMA_BUF_SIZE - (uint16_t)hdma_usart2_rx.Instance->CNDTR);
   uint16_t n = 0;
@@ -846,6 +893,12 @@ extern "C"
       {
         if ( isr & USART_ISR_ORE )
           sUsart1OreCount++;
+        if ( isr & USART_ISR_FE )
+          sUsart1FeCount++;
+        if ( isr & USART_ISR_NE )
+          sUsart1NeCount++;
+        if ( isr & USART_ISR_PE )
+          sUsart1PeCount++;
         USART1->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
       }
 
@@ -872,10 +925,11 @@ extern "C"
     // USART2 NVIC is disabled; this is only a safety net. DMA owns RDR, so
     // never read it here (that used to drop a valid byte on ORE).
     const uint32_t isr = USART2->ISR;
-    if ( isr & USART_ISR_ORE )
-      sUsart2OreCount++;
     if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
-      USART2->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
+      {
+        countUsart2Errors(isr);
+        USART2->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
+      }
   }
 
 

@@ -89,10 +89,52 @@ void fireTestPacket()
   RadioManager::instance().sendTestPacketNow(p);
 }
 
+static void skipToKnownCommand(string &s)
+{
+  static const char *const cmds[] = {
+      "help",
+      "station ",
+      "station?",
+      "sys?",
+      "nmea?",
+      "dfu",
+      "erase station",
+      "factory reset",
+      "tx test",
+      "tx on",
+      "tx off",
+      "tx?",
+      "stoptx",
+      "reboot",
+      "cli",
+      "gps off",
+      "gps on",
+      "msg24",
+      "otp?",
+      "otp ",
+      "xotrim ",
+      "xotrim?",
+      "pa_level ",
+      "pa_level?"
+  };
+
+  size_t best = string::npos;
+  for ( unsigned i = 0; i < sizeof cmds / sizeof cmds[0]; ++i )
+    {
+      size_t p = s.find(cmds[i]);
+      if ( p != string::npos && (best == string::npos || p < best) )
+        best = p;
+    }
+
+  if ( best != string::npos && best > 0 )
+    s.erase(0, best);
+}
+
 void CommandProcessor::processCommand(const char *buff)
 {
   string s(buff);
   Utils::trim(s);
+  skipToKnownCommand(s);
 
   if ( s.find("help") == 0 )
     {
@@ -167,17 +209,26 @@ void CommandProcessor::processCommand(const char *buff)
     }
   else if ( s.find("nmea?") == 0 )
     {
-      Event *e = EventPool::instance().newEvent(PROPR_NMEA_SENTENCE);
-      if ( !e )
-        return;
-      sprintf(e->nmeaBuffer.sentence, "$PAINMEA,%lu,%lu,%lu,%lu,%lu*",
+      // Write directly. Queuing PROPR_NMEA_SENTENCE through the 10-deep thread
+      // pool silently dropped replies under AIS load (~40% miss in the field).
+      char line[192];
+      snprintf(line, sizeof line,
+          "$PAINMEA,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu*",
           (unsigned long)bsp_gnss_ore_count(),
           (unsigned long)bsp_uart1_ore_count(),
           (unsigned long)GPS::instance().droppedChecksumCount(),
           (unsigned long)GPS::instance().echoOverflowCount(),
-          (unsigned long)EventQueue::instance().droppedCount());
-      Utils::completeNMEA(e->nmeaBuffer.sentence);
-      EventQueue::instance().push(e);
+          (unsigned long)EventQueue::instance().droppedCount(),
+          (unsigned long)bsp_gnss_fe_count(),
+          (unsigned long)bsp_gnss_ne_count(),
+          (unsigned long)bsp_gnss_pe_count(),
+          (unsigned long)bsp_uart1_fe_count(),
+          (unsigned long)bsp_uart1_ne_count(),
+          (unsigned long)bsp_uart1_pe_count(),
+          (unsigned long)DataTerminal::instance().commandDropCount(),
+          (unsigned long)EventPool::instance().allocFailCount());
+      Utils::completeNMEA(line);
+      DataTerminal::instance().write(line);
     }
   else if ( s.find("dfu") == 0 )
     {

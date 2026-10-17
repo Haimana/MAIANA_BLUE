@@ -124,6 +124,7 @@ public:
   void deleteEvent(Event *event);
   uint32_t utilization();
   uint32_t maxUtilization();
+  uint32_t allocFailCount() const;
   RXPacket *newRXPacket();
   void releaseRXPacket(RXPacket *);
 private:
@@ -133,6 +134,7 @@ private:
   ObjectPool<Event>     mISRPool;
   ObjectPool<Event>     mThreadPool;
   ObjectPool<RXPacket>  mRXPool;
+  volatile uint32_t     mAllocFail;
 };
 
 #endif /* EVENTS_HPP_ */

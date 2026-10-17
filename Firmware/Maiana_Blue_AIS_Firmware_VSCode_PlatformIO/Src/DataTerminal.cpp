@@ -23,9 +23,11 @@
 #include "Utils.hpp"
 #include "GPS.hpp"
 #include "bsp.hpp"
+#include <ctype.h>
 
 static char __rxbuff[80];
 static uint8_t __rxpos = 0;
+static volatile uint32_t sCommandDrop = 0;
 
 void termInputCB(char c);
 
@@ -89,6 +91,11 @@ void DataTerminal::write(const char* s)
 
 
 
+uint32_t DataTerminal::commandDropCount() const
+{
+  return sCommandDrop;
+}
+
 void DataTerminal::_write(const char *s)
 {
 #ifdef MULTIPLEXED_OUTPUT
@@ -106,6 +113,12 @@ void termInputCB(char c)
       return;
     }
 
+  // TX EMI on USART1 RX often prefixes a command with junk (0xAA, 'b', …).
+  // Every CLI verb starts with a letter; drop leading non-alpha so "nmea?"
+  // is not stored as "\xAAnmea?" and then ignored by a prefix match.
+  if ( __rxpos == 0 && c != '\n' && !isalpha((unsigned char)c) )
+    return;
+
   __rxbuff[__rxpos++] = c;
   if ( __rxpos >= sizeof __rxbuff )
     {
@@ -120,6 +133,8 @@ void termInputCB(char c)
           strlcpy(e->command.buffer, __rxbuff, sizeof e->command.buffer);
           EventQueue::instance().push(e);
         }
+      else
+        sCommandDrop++;
       __rxpos = 0;
     }
 }
