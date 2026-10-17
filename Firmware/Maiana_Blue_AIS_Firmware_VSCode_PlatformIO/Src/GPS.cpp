@@ -42,12 +42,17 @@ void gnssSOTDMACB();
 static char sEchoBuf[GPS_ECHO_BUF_SIZE];
 static volatile uint16_t sEchoHead = 0;
 static volatile uint16_t sEchoTail = 0;
+static volatile uint32_t sDroppedChecksum = 0;
+static volatile uint32_t sEchoOverflow = 0;
 
 static void echoPush(char c)
 {
   uint16_t next = (uint16_t)((sEchoHead + 1) % GPS_ECHO_BUF_SIZE);
   if ( next == sEchoTail )
-    return;
+    {
+      sEchoOverflow++;
+      return;
+    }
 
   sEchoBuf[sEchoHead] = c;
   sEchoHead = next;
@@ -168,15 +173,24 @@ void GPS::onRX(char c)
       mBuff[mBuffPos] = 0;
 
       if ( mBuff[0] == '$' )
-        echoPushLine(mBuff, mBuffPos);
-
-      if ( isNavSentence(mBuff) )
         {
-          Event *e = EventPool::instance().newEvent(GPS_NMEA_SENTENCE);
-          if ( e )
+          if ( !Utils::nmeaChecksumValid(mBuff) )
             {
-              strlcpy(e->nmeaBuffer.sentence, mBuff, sizeof e->nmeaBuffer.sentence);
-              EventQueue::instance ().push(e);
+              sDroppedChecksum++;
+            }
+          else
+            {
+              echoPushLine(mBuff, mBuffPos);
+
+              if ( isNavSentence(mBuff) )
+                {
+                  Event *e = EventPool::instance().newEvent(GPS_NMEA_SENTENCE);
+                  if ( e )
+                    {
+                      strlcpy(e->nmeaBuffer.sentence, mBuff, sizeof e->nmeaBuffer.sentence);
+                      EventQueue::instance ().push(e);
+                    }
+                }
             }
         }
 
@@ -246,20 +260,18 @@ void GPS::processEvent(const Event &event)
 
 void GPS::processLine(const char* buff)
 {
-  if ( buff[0] == '$' && buff[1] != '$' )
-    {
-      unsigned reportedHash;
-      char *starPos = strstr(buff, "*");
-      if ( starPos && sscanf(starPos + 1, "%x", &reportedHash) == 1 )
-        {
-          unsigned actualHash = 0;
-          for ( const char* c = buff + 1; c < starPos; ++c )
-            actualHash ^= *c;
+  if ( buff[0] == '$' && buff[1] != '$' && Utils::nmeaChecksumValid(buff) )
+    parseSentence(buff);
+}
 
-          if ( reportedHash == actualHash )
-            parseSentence(buff);
-        }
-    }
+uint32_t GPS::droppedChecksumCount() const
+{
+  return sDroppedChecksum;
+}
+
+uint32_t GPS::echoOverflowCount() const
+{
+  return sEchoOverflow;
 }
 
 bool GPS::isValidNmeaDate(const char *ddmmyy)

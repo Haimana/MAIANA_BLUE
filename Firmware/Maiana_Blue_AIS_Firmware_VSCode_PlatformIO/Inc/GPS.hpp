@@ -63,6 +63,8 @@ public:
 	void onIRQ(uint32_t mask, void *data);
 	void processEvent(const Event &event);
 	void drainEcho();
+	uint32_t droppedChecksumCount() const;
+	uint32_t echoOverflowCount() const;
 
 private:
 	GPS();
