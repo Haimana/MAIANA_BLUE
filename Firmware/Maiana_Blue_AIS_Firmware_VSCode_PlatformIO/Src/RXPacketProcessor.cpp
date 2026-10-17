@@ -111,11 +111,11 @@ void RXPacketProcessor::processEvent(const Event &e)
       for (vector<string>::iterator i = mSentences.begin(); i != mSentences.end(); ++i)
         {
 #ifdef MULTIPLEXED_OUTPUT
-          sprintf(__buff, "%s\r\n", i->c_str());
-          DataTerminal::instance().write("NMEA", __buff);
+          DataTerminal::instance().write("NMEA", i->c_str());
 #else
+          // Sentence + CRLF is one write. Two writes let $PAITX land
+          // between the body and its terminator (4.5.9 field glue).
           DataTerminal::instance().write(i->c_str());
-          DataTerminal::instance().write("\r\n");
 #endif
         }
 

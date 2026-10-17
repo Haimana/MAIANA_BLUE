@@ -25,6 +25,7 @@
 #include "UartQuiet.hpp"
 #include "bsp.hpp"
 #include <ctype.h>
+#include <stdio.h>
 
 static char __rxbuff[80];
 static uint8_t __rxpos = 0;
@@ -75,10 +76,9 @@ void DataTerminal::processEvent(const Event &e)
 void DataTerminal::write(const char *cls, const char* s)
 {
   GPS::instance().flushEchoLine();
-  UartQuiet::instance().write("[");
-  UartQuiet::instance().write(cls);
-  UartQuiet::instance().write("]");
-  UartQuiet::instance().write(s);
+  char line[160];
+  snprintf(line, sizeof line, "[%s]%s", cls ? cls : "", s ? s : "");
+  UartQuiet::instance().write(line);
 }
 
 #else

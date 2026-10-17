@@ -59,6 +59,9 @@ private:
   uint32_t bitsUntilTx() const;
   bool canStartBytesNoPoll(uint16_t n);
   bool wontFitFullSlot(uint16_t n) const;
+  bool holdOpen() const;
+  bool holdHasComplete() const;
+  static uint16_t startNeed(const char *s, uint16_t n);
   static uint32_t aisBitsForChars(uint16_t n);
   static uint32_t slotMarginBits();
 

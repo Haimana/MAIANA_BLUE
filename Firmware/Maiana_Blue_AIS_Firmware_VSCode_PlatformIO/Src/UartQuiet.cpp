@@ -191,7 +191,7 @@ void UartQuiet::poll()
     {
       closeHold(now, false);
     }
-  else if ( mHoldLen )
+  else if ( mHoldLen && !mMidLine )
     {
       flushHoldFitting();
     }
@@ -243,8 +243,38 @@ void UartQuiet::holdPushSentence(const char *s)
     mHoldMax = mHoldLen;
 }
 
+bool UartQuiet::holdOpen() const
+{
+  return mHoldLen > 0 && mHold[mHoldLen - 1] != '\n';
+}
+
+bool UartQuiet::holdHasComplete() const
+{
+  for ( uint16_t i = 0; i < mHoldLen; ++i )
+    {
+      if ( mHold[i] == '\n' )
+        return true;
+    }
+  return false;
+}
+
+uint16_t UartQuiet::startNeed(const char *s, uint16_t n)
+{
+  // A write without LF is an open sentence; reserve CRLF so we do not
+  // start a body that cannot finish before the next CCA bit.
+  for ( uint16_t i = 0; i < n; ++i )
+    {
+      if ( s[i] == '\n' )
+        return n;
+    }
+  return (uint16_t)(n + 2);
+}
+
 void UartQuiet::flushHoldFitting()
 {
+  if ( mMidLine )
+    return;
+
   uint16_t pos = 0;
   while ( pos < mHoldLen )
     {
@@ -281,10 +311,20 @@ void UartQuiet::write(const char *s)
 {
   poll();
 
-  if ( !s )
+  if ( !s || !*s )
     return;
 
-  if ( mMidLine )
+  const bool newNmea = (s[0] == '$' || s[0] == '!');
+
+  // Never glue a new NMEA sentence onto an in-flight line. Close the
+  // open line first; the original CRLF (if it arrives later) is then
+  // just an empty line.
+  if ( mMidLine && newNmea )
+    {
+      writeCharRaw('\r');
+      writeCharRaw('\n');
+    }
+  else if ( mMidLine )
     {
       while ( *s )
         {
@@ -293,20 +333,36 @@ void UartQuiet::write(const char *s)
           if ( c == '\n' )
             break;
         }
+      if ( !*s )
+        return;
     }
 
-  if ( !*s )
-    return;
-
-  if ( mHolding || !canStartBytesNoPoll((uint16_t)strlen(s)) )
+  if ( holdOpen() && newNmea )
+    holdPushSentence("\r\n");
+  else if ( holdOpen() )
     {
-      noteDefer((uint16_t)strlen(s));
       holdPushSentence(s);
+      if ( !mHolding )
+        flushHoldFitting();
+      return;
+    }
+
+  const uint16_t n = (uint16_t)strlen(s);
+  const uint16_t need = startNeed(s, n);
+
+  // Preserve order: do not start a new sentence while a complete one
+  // is already waiting in the hold (window can open between flush and emit).
+  if ( mHolding || holdHasComplete() || !canStartBytesNoPoll(need) )
+    {
+      noteDefer(need);
+      holdPushSentence(s);
+      if ( !mHolding && !mMidLine )
+        flushHoldFitting();
       return;
     }
 
   noteStart();
-  emitChars(s, (uint16_t)strlen(s));
+  emitChars(s, n);
 }
 
 uint32_t UartQuiet::quietWindows() const { return mWindows; }
