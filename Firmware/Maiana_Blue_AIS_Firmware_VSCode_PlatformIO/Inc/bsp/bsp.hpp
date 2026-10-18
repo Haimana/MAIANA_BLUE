@@ -47,6 +47,14 @@ uint32_t bsp_uart1_ne_count();
 uint32_t bsp_uart1_pe_count();
 #endif
 void bsp_poll_gnss_rx();
+// GNSS UART rate control for GPS link auto-detection (GPS::serviceLink()).
+// bsp_gnss_set_baud() reprograms the GNSS UART at runtime without stopping
+// RX DMA and discards bytes still buffered at the previous rate.
+void bsp_gnss_set_baud(uint32_t baud);
+uint32_t bsp_gnss_baud();
+// GNSS UART polls that found FE or NE set. Always compiled (not NMEA_DIAG):
+// a burst of these with no valid NMEA means the rate is wrong.
+uint32_t bsp_gnss_rx_error_events();
 #if NMEA_DIAG
 uint32_t bsp_gnss_ore_count();
 uint32_t bsp_gnss_fe_count();
@@ -86,6 +94,9 @@ bool bsp_is_station_data_provisioned();
 void bsp_read_config_flags(ConfigFlags *flags);
 void bsp_write_config_flags(const ConfigFlags &flags);
 void bsp_erase_config_flags();
+// Rewrite a single byte of the stored ConfigFlags (offset into the struct)
+// and verify it. A few ms instead of rewriting the whole struct.
+bool bsp_write_config_flags_byte(uint8_t offset, uint8_t value);
 
 void bsp_read_xo_trim(XOTrim *t);
 void bsp_write_xo_trim(const XOTrim &t);
@@ -141,6 +152,24 @@ extern const char *BSP_HW_REV;
 #include <bsp_11_0.hpp>
 #elif BOARD_REV == 113 || BOARD_REV == 114
 #include <bsp_11_3.hpp>
+#endif
+
+/**
+ * GNSS link capability.
+ *
+ * BSP_GNSS_HAS_TX = 1 means an MCU UART TX line reaches the GNSS module's
+ * RXD, so the firmware can send configuration sentences (baud, sentence set).
+ * A board header that wires it defines BSP_GNSS_HAS_TX 1 and its BSP
+ * implements bsp_gnss_send(). GPS::configureModule() is the consumer.
+ * Current boards are receive-only.
+ */
+#ifndef BSP_GNSS_HAS_TX
+#define BSP_GNSS_HAS_TX 0
+#endif
+
+#if BSP_GNSS_HAS_TX
+// Send one complete NMEA sentence ("$...*HH\r\n") to the GNSS module.
+bool bsp_gnss_send(const char *sentence);
 #endif
 
 

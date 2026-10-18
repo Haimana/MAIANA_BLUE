@@ -92,6 +92,10 @@
 #define I2C_SDA_PORT              GPIOB
 #define I2C_SDA_PIN               GPIO_PIN_7
 
+// GNSS is receive-only on this board: GNSS RXD is not wired to the MCU and
+// PA2 (the USART2_TX AF7 pin) is the 1PPS input. Do not repurpose PA2.
+#define BSP_GNSS_HAS_TX           0
+
 
 
 #endif /* INC_BSP_5_0_HPP_ */

@@ -50,6 +50,8 @@ DMA_HandleTypeDef hdma_usart2_rx;
 #define GNSS_DMA_BUF_SIZE 1024
 static volatile uint8_t sGnssDmaBuf[GNSS_DMA_BUF_SIZE];
 static uint16_t sGnssDmaRead = 0;
+static uint32_t sGnssBaud = 0;
+static uint32_t sGnssRxErrEvents = 0;
 #if NMEA_DIAG
 static volatile uint32_t sUsart2OreCount = 0;
 static volatile uint32_t sUsart2FeCount = 0;
@@ -243,6 +245,8 @@ void bsp_hw_init()
   huart2.Init.OneBitSampling          = UART_ONE_BIT_SAMPLE_DISABLE;
   huart2.AdvancedInit.AdvFeatureInit  = UART_ADVFEATURE_NO_INIT;
   HAL_UART_Init(&huart2);
+  // Initial rate only; GPS::enable() switches to the stored or probed rate.
+  sGnssBaud = huart2.Init.BaudRate;
 
   // Polled circular DMA for LC76G RX. Radio bit-clock ISRs (prio 1) plus
   // reportRSSI/SPI waits can exceed the 87 us USART2 character time and
@@ -624,6 +628,21 @@ void bsp_erase_tx_config()
   bsp_write_tx_config(c);
 }
 
+bool bsp_write_config_flags_byte(uint8_t offset, uint8_t value)
+{
+  if ( offset >= sizeof(ConfigFlags) )
+    return false;
+  if ( !eeprom_ready() )
+    return false;
+
+  const uint16_t addr = EEPROM_CONFIG_ADDRESS + offset;
+  if ( !eeprom_write_byte(addr, value) )
+    return false;
+
+  uint8_t rb = 0;
+  return eeprom_read_bytes(addr, &rb, 1) && rb == value;
+}
+
 void bsp_set_rx_mode()
 {
   HAL_GPIO_WritePin(PA_BIAS_PORT, PA_BIAS_PIN, GPIO_PIN_RESET);       // Kill the RF MOSFET bias voltage
@@ -778,6 +797,10 @@ void bsp_poll_gnss_rx()
   const uint32_t isr = USART2->ISR;
   if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
     {
+      // Sticky flags: this counts polls that saw errors, not bytes. That is
+      // enough to tell "wrong rate" (continuous) from a stray glitch.
+      if ( isr & (USART_ISR_FE | USART_ISR_NE) )
+        sGnssRxErrEvents++;
 #if NMEA_DIAG
       countUsart2Errors(isr);
 #endif
@@ -796,6 +819,44 @@ void bsp_poll_gnss_rx()
         gnssInputCallback(c);
       ++n;
     }
+}
+
+void bsp_gnss_set_baud(uint32_t baud)
+{
+  if ( baud == 0 )
+    return;
+
+  // USART2 kernel clock is PCLK1 (CCIPR USART2SEL left at reset value, as
+  // HAL_UART_Init() assumed). BRR may only be written while UE = 0. RE and
+  // DMAR stay set: the circular DMA keeps its configuration and simply gets
+  // no requests while UE is low, so it is not stopped or restarted.
+  const uint32_t pclk = HAL_RCC_GetPCLK1Freq();
+  const uint32_t brr = (pclk + baud / 2u) / baud;
+
+  CLEAR_BIT(USART2->CR1, USART_CR1_UE);
+  USART2->BRR = brr;
+  USART2->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
+  SET_BIT(USART2->CR1, USART_CR1_UE);
+
+  huart2.Init.BaudRate = baud;
+  sGnssBaud = baud;
+
+  // Discard whatever was received at the old rate: move the read index to
+  // the DMA write position.
+  uint16_t write = (uint16_t)(GNSS_DMA_BUF_SIZE - (uint16_t)hdma_usart2_rx.Instance->CNDTR);
+  if ( write >= GNSS_DMA_BUF_SIZE )
+    write = 0;
+  sGnssDmaRead = write;
+}
+
+uint32_t bsp_gnss_baud()
+{
+  return sGnssBaud;
+}
+
+uint32_t bsp_gnss_rx_error_events()
+{
+  return sGnssRxErrEvents;
 }
 
 void bsp_write_char(char c)
