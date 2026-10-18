@@ -52,6 +52,11 @@ public:
   bool isHourlyRebootEnabled() const;
   void reportHourlyReboot();
 
+  // GNSS UART rate hint (GNSS_BAUD_CODE_*). setGnssBaudCode() writes only
+  // when the value changes, and only one EEPROM byte once flags exist.
+  uint8_t gnssBaudCode() const;
+  bool setGnssBaudCode(uint8_t code);
+
   bool isXOTrimmed();
   void setXOTrimValue(uint8_t value);
   uint8_t getXOTrimValue();

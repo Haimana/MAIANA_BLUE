@@ -109,6 +109,29 @@
 #define UART_QUIET_OPEN_HOLD_MS       40
 #define UART_QUIET_HOLD_BUF          512
 
+/*
+ * GNSS UART rate auto-detection (GPS::serviceLink(), non-blocking).
+ *
+ * Board 11.9.x ships an L76L-M33 at 9600, Board 11.10+ an LC76G at 115200,
+ * on the same receive-only USART2. After GNSS power-up the GPS listens at the
+ * stored hint (115200 if none) and locks once GNSS_LOCK_VALID_LINES sentences
+ * with a valid checksum arrive. Both modules emit checksummed NMEA every
+ * second even without a fix, so detection does not wait for a fix.
+ *
+ * No valid line within the window → next candidate. A wrong rate also shows
+ * up as continuous FE/NE, which allows an early switch. Once locked, silence
+ * for GNSS_LINK_LOST_MS while enabled re-enters probing at the same rate.
+ * Windows exceed one 1 Hz output period so a burst cannot be missed (an L76L
+ * burst lasts ~0.6 s at 9600).
+ */
+#define GNSS_PROBE_BOOT_WINDOW_MS    2500   // first window after power-up / re-probe
+#define GNSS_PROBE_WINDOW_MS         1500   // following windows
+#define GNSS_PROBE_FAST_MS            300   // earliest early switch
+#define GNSS_PROBE_FAST_ERR_EVENTS     16   // FE/NE polls with zero valid lines
+#define GNSS_LOCK_VALID_LINES           2
+#define GNSS_LINK_LOST_MS            5000
+#define GNSS_HINT_IDLE_MS             200   // persist the hint in the gap after a burst
+
 
 #define BOOTMODE_ADDRESS              0x20009C00
 #define DFU_FLAG_MAGIC                0xa191feed

@@ -23,6 +23,7 @@
 #include "config.h"
 #include "EventQueue.hpp"
 #include <stdio.h>
+#include <stddef.h>
 #include <cstring>
 #include <bsp/bsp.hpp>
 #include "bsp.hpp"
@@ -111,6 +112,39 @@ bool Configuration::isHourlyRebootEnabled() const
     return true;
 
   return (mFlags.flags[0] & CONFIG_FLAG_HRB_INHIBIT) == 0;
+}
+
+uint8_t Configuration::gnssBaudCode() const
+{
+  if ( mFlags.magic != CONFIG_FLAGS_MAGIC )
+    return GNSS_BAUD_CODE_NONE;
+
+  return (uint8_t)((mFlags.flags[0] & CONFIG_FLAG_GNSS_BAUD_MASK) >> CONFIG_FLAG_GNSS_BAUD_SHIFT);
+}
+
+bool Configuration::setGnssBaudCode(uint8_t code)
+{
+  code &= (uint8_t)(CONFIG_FLAG_GNSS_BAUD_MASK >> CONFIG_FLAG_GNSS_BAUD_SHIFT);
+  const bool hadMagic = mFlags.magic == CONFIG_FLAGS_MAGIC;
+  if ( hadMagic && gnssBaudCode() == code )
+    return true;
+
+  ensureFlags();
+  mFlags.flags[0] = (mFlags.flags[0] & ~CONFIG_FLAG_GNSS_BAUD_MASK)
+      | ((uint32_t)code << CONFIG_FLAG_GNSS_BAUD_SHIFT);
+
+  if ( !hadMagic )
+    {
+      // First flags write on this EEPROM: the magic must go too (one-time
+      // full write, ~150 ms).
+      bsp_write_config_flags(mFlags);
+      return true;
+    }
+
+  // Bits 2-3 live in the low byte of flags[0] (little-endian), so only that
+  // byte changes. Rewriting it alone takes ~5 ms instead of ~150 ms.
+  return bsp_write_config_flags_byte((uint8_t)offsetof(ConfigFlags, flags),
+      (uint8_t)(mFlags.flags[0] & 0xffu));
 }
 
 void Configuration::reportHourlyReboot()

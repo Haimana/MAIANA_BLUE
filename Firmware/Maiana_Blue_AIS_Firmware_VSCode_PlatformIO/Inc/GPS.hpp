@@ -72,8 +72,25 @@ public:
 #endif
 	bool echoPending() const;
 
+	// GNSS UART rate auto-detection (see config.h GNSS_PROBE_*)
+	enum LinkState
+	{
+	  LINK_OFF = 0,
+	  LINK_PROBE = 1,
+	  LINK_LOCKED = 2
+	};
+	uint8_t linkState() const;
+	uint32_t gnssBaud() const;
+	void reportLink();
+
 private:
 	GPS();
+	void noteValidLine();
+	void serviceLink();
+	void startProbe(uint8_t index, uint32_t windowMs);
+	void lockLink();
+	void configureModule();
+	uint8_t hintIndex() const;
 	void processLine(const char *buff);
 	void parseSentence(const char *buff);
 	void parseRmc(const NMEASentence &sentence);
@@ -93,6 +110,16 @@ private:
 	float mSpeed;
 	uint32_t mPeriod;
 	struct tm mTime;
+
+	uint8_t mLinkState;
+	uint8_t mBaudIndex;
+	uint8_t mValidLines;
+	bool mHintPending;
+	uint32_t mWindowStart;
+	uint32_t mWindowMs;
+	uint32_t mLastValidTick;
+	uint32_t mErrAtWindowStart;
+	uint32_t mProbeSwitches;
 };
 
 #endif /* GPS_HPP_ */

@@ -24,6 +24,8 @@
 #include "Utils.hpp"
 #include "EventQueue.hpp"
 #include "UartQuiet.hpp"
+#include "Configuration.hpp"
+#include "DataTerminal.hpp"
 #include "bsp.hpp"
 #include <stm32l4xx_hal.h>
 #include <stdio.h>
@@ -71,6 +73,27 @@ static void echoPushLine(const char *line, uint8_t len)
     echoPush(line[i]);
 }
 
+/*
+ * GNSS UART rate candidates, probed in order starting at the stored hint.
+ *
+ * To support another rate: append { baud, GNSS_BAUD_CODE_x }. Codes are
+ * persisted in 2 bits of ConfigFlags (ConfigFlags.h), so never renumber an
+ * existing code; 3 is the last free one (widen the field beyond that).
+ * Index 0 is the default when no hint is stored.
+ */
+struct GnssBaudCandidate
+{
+  uint32_t baud;
+  uint8_t code;
+};
+
+static const GnssBaudCandidate kGnssBauds[] = {
+    { 115200, GNSS_BAUD_CODE_115200 },  // Quectel LC76G default (Board 11.10+)
+    { 9600,   GNSS_BAUD_CODE_9600 },    // Quectel L76L-M33 default (Board 11.9.x and older)
+};
+
+static const uint8_t kGnssBaudCount = (uint8_t)(sizeof kGnssBauds / sizeof kGnssBauds[0]);
+
 static bool isNavSentence(const char *line)
 {
   if ( line[0] != '$' )
@@ -92,7 +115,9 @@ GPS::instance()
 }
 
 GPS::GPS()
-: mBuffPos(0), mUTC(0), mLat(0), mLng(0), mStarted(false), mSlotNumber(0), mDelegate(NULL), mCOG(511), mSpeed(0)
+: mBuffPos(0), mUTC(0), mLat(0), mLng(0), mStarted(false), mSlotNumber(0), mDelegate(NULL), mCOG(511), mSpeed(0),
+  mLinkState(LINK_OFF), mBaudIndex(0), mValidLines(0), mHintPending(false), mWindowStart(0), mWindowMs(0),
+  mLastValidTick(0), mErrAtWindowStart(0), mProbeSwitches(0)
 {
   memset(&mTime, 0, sizeof(mTime));
   mPeriod = (bsp_get_system_clock() / 37.5) - 1;
@@ -146,10 +171,12 @@ void GPS::enable()
   bsp_gnss_off();
   HAL_Delay(300);
   bsp_gnss_on();
+  startProbe(hintIndex(), GNSS_PROBE_BOOT_WINDOW_MS);
 }
 
 void GPS::disable()
 {
+  mLinkState = LINK_OFF;
   bsp_gnss_off();
   bsp_gps_led_off();
 }
@@ -189,6 +216,7 @@ void GPS::onRX(char c)
             }
           else
             {
+              noteValidLine();
               echoPushLine(mBuff, mBuffPos);
 
               if ( isNavSentence(mBuff) )
@@ -234,6 +262,182 @@ void GPS::flushEchoLine()
 void GPS::pollRX()
 {
   bsp_poll_gnss_rx();
+  serviceLink();
+}
+
+/*
+ * GNSS UART rate auto-detection.
+ *
+ * OFF ──enable()──> PROBE(hint, boot window)
+ * PROBE: >= GNSS_LOCK_VALID_LINES valid lines        → LOCKED
+ *        window over, no valid line                  → PROBE(next candidate)
+ *        window over, some valid lines               → same candidate again
+ *        >= FAST_MS, many FE/NE polls, no valid line → PROBE(next candidate)
+ * LOCKED: no valid line for GNSS_LINK_LOST_MS        → PROBE(same rate, boot window)
+ *
+ * Runs from pollRX() in the main thread only, like bsp_poll_gnss_rx(), so it
+ * never races the DMA read index. It does not touch the 1PPS / SOTDMA timer
+ * path: AIS slot timing keeps running from PPS across a re-probe.
+ */
+void GPS::noteValidLine()
+{
+  mLastValidTick = HAL_GetTick();
+  if ( mValidLines < 0xff )
+    ++mValidLines;
+}
+
+uint8_t GPS::hintIndex() const
+{
+  const uint8_t code = Configuration::instance().gnssBaudCode();
+  for ( uint8_t i = 0; i < kGnssBaudCount; ++i )
+    {
+      if ( kGnssBauds[i].code == code )
+        return i;
+    }
+  return 0;
+}
+
+void GPS::startProbe(uint8_t index, uint32_t windowMs)
+{
+  if ( index >= kGnssBaudCount )
+    index = 0;
+
+  mBaudIndex = index;
+  if ( bsp_gnss_baud() != kGnssBauds[index].baud )
+    bsp_gnss_set_baud(kGnssBauds[index].baud);
+
+  // Partial line from the old rate (or from before power-up) is garbage.
+  mBuffPos = 0;
+  mBuff[0] = 0;
+
+  mValidLines = 0;
+  mWindowStart = HAL_GetTick();
+  mWindowMs = windowMs;
+  mErrAtWindowStart = bsp_gnss_rx_error_events();
+  mLinkState = LINK_PROBE;
+}
+
+void GPS::lockLink()
+{
+  mLinkState = LINK_LOCKED;
+  mHintPending = Configuration::instance().gnssBaudCode() != kGnssBauds[mBaudIndex].code;
+  configureModule();
+}
+
+void GPS::configureModule()
+{
+#if BSP_GNSS_HAS_TX
+  /*
+   * TODO(BSP_GNSS_HAS_TX): extension point for boards where MCU TX reaches
+   * GNSS RXD. Called once per lock, at the detected rate (kGnssBauds[mBaudIndex]).
+   * Not implemented: no current board can send to the module.
+   *
+   * Possible use:
+   *  - Identify the module from its own output: LC76G (Airoha) emits $PAIR /
+   *    $PQTM replies, L76L (MediaTek) answers $PMTK605 with $PMTK705.
+   *  - Move it to a preferred rate, then startProbe() there:
+   *      LC76G: "$PAIR864,0,0,<baud>*HH" then a module reset (GNSS_EN power
+   *             cycle). PQTMSAVEPAR does not cover it; verify that the
+   *             module keeps it across power cycles before relying on it.
+   *      L76L:  "$PMTK251,<baud>*HH" (kept only while V_BCKP is supplied).
+   *  - Trim the sentence set so it fits the rate (an LC76G at 9600 cannot
+   *    carry its default ~1.5 KB/s): $PAIR062 / $PMTK314.
+   * Send with bsp_gnss_send() between output bursts, keep probing as the
+   * fallback, and never block the main loop.
+   */
+#endif
+}
+
+void GPS::serviceLink()
+{
+  const uint32_t now = HAL_GetTick();
+
+  switch ( mLinkState )
+    {
+    case LINK_PROBE:
+      {
+        if ( mValidLines >= GNSS_LOCK_VALID_LINES )
+          {
+            lockLink();
+            break;
+          }
+
+        const uint32_t elapsed = now - mWindowStart;
+        const uint32_t errors = bsp_gnss_rx_error_events() - mErrAtWindowStart;
+        const bool garbage = mValidLines == 0 && elapsed >= GNSS_PROBE_FAST_MS
+            && errors >= GNSS_PROBE_FAST_ERR_EVENTS;
+
+        if ( garbage || elapsed >= mWindowMs )
+          {
+            if ( mValidLines == 0 )
+              {
+                ++mProbeSwitches;
+                startProbe((uint8_t)((mBaudIndex + 1) % kGnssBaudCount), GNSS_PROBE_WINDOW_MS);
+              }
+            else
+              {
+                // Valid NMEA but not enough yet (window ended mid-burst): stay.
+                mWindowStart = now;
+                mWindowMs = GNSS_PROBE_WINDOW_MS;
+                mErrAtWindowStart = bsp_gnss_rx_error_events();
+              }
+          }
+      }
+      break;
+
+    case LINK_LOCKED:
+      if ( mHintPending && now - mLastValidTick >= GNSS_HINT_IDLE_MS )
+        {
+          // In the gap after a 1 Hz burst, so even a one-time full flags
+          // write cannot overrun the GNSS DMA ring.
+          mHintPending = false;
+          Configuration::instance().setGnssBaudCode(kGnssBauds[mBaudIndex].code);
+        }
+
+      if ( now - mLastValidTick >= GNSS_LINK_LOST_MS )
+        {
+          bsp_gps_led_off();
+          startProbe(mBaudIndex, GNSS_PROBE_BOOT_WINDOW_MS);
+        }
+      break;
+
+    default:
+      break;
+    }
+}
+
+uint8_t GPS::linkState() const
+{
+  return mLinkState;
+}
+
+uint32_t GPS::gnssBaud() const
+{
+  return bsp_gnss_baud();
+}
+
+void GPS::reportLink()
+{
+  // $PAIGNSS,<baud>,<state 0=off 1=probe 2=locked>,<stored hint baud, 0=none>,
+  //          <probe switches>,<FE/NE poll events>,<has_tx>*HH
+  uint32_t hintBaud = 0;
+  const uint8_t code = Configuration::instance().gnssBaudCode();
+  for ( uint8_t i = 0; i < kGnssBaudCount; ++i )
+    {
+      if ( kGnssBauds[i].code == code )
+        hintBaud = kGnssBauds[i].baud;
+    }
+
+  char line[80];
+  snprintf(line, sizeof line, "$PAIGNSS,%lu,%u,%lu,%lu,%lu,%u*",
+      (unsigned long)bsp_gnss_baud(),
+      (unsigned)mLinkState,
+      (unsigned long)hintBaud,
+      (unsigned long)mProbeSwitches,
+      (unsigned long)bsp_gnss_rx_error_events(),
+      (unsigned)BSP_GNSS_HAS_TX);
+  Utils::completeNMEA(line);
+  DataTerminal::instance().write(line);
 }
 
 static uint16_t echoPeekLineLen()
