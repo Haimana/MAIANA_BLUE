@@ -58,7 +58,8 @@ public:
   void reportXOTrimValue();
 
   bool isTXConfigured();
-  void setPALevel(uint8_t value);
+  bool readTXConfig(TXConfig &c);
+  bool setPALevel(uint8_t value);
   uint8_t getPALevel();
   void reportTXConfig();
 

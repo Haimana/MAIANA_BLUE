@@ -53,22 +53,29 @@ public:
   VHFChannel alternateChannel(VHFChannel channel);
 
   void setXOTrimValue(uint8_t value);
-  
+  void poll();
+
   // Debug access methods
   Transceiver* getTransceiver() { return mTransceiverIC; }
   Receiver* getReceiver() { return mReceiverIC; }
+  uint8_t defaultPALevel();
+  bool applyPALevel(uint8_t level);
 
 private:
   RadioManager();
   void spiOff();
   void configureInterrupts();
   void reportError(int chipId);
+  bool paApplyBlocked() const;
+  void applyPendingPALevel();
 private:
   Transceiver *mTransceiverIC;
   Receiver *mReceiverIC;
   bool mInitializing;
   time_t mUTC = 0;
   time_t mStartTime = 0;
+  bool mPALevelPending;
+  uint8_t mPendingPALevel;
 
   CircularQueue<TXPacket*>  mTXQueue;
 };

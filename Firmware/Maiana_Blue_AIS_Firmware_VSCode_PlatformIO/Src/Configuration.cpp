@@ -27,6 +27,7 @@
 #include <bsp/bsp.hpp>
 #include "bsp.hpp"
 #include "DataTerminal.hpp"
+#include "RadioManager.hpp"
 
 
 // These are not defined in ANY CMSIS or HAL header, WTF???
@@ -302,38 +303,41 @@ uint8_t Configuration::getXOTrimValue()
 
 void Configuration::reportTXConfig()
 {
-  uint8_t value = 0;
-  if ( this->isTXConfigured() )
-    {
-      value = this->getPALevel();
-    }
-  
-  Event *e = EventPool::instance().newEvent(PROPR_NMEA_SENTENCE);
-  if ( !e ) return;
+  TXConfig c;
+  const bool stored = readTXConfig(c);
+  const uint8_t level = stored ? c.pa_level : RadioManager::instance().defaultPALevel();
 
-  sprintf(e->nmeaBuffer.sentence, "$PAITXC,%d*", value);
-  Utils::completeNMEA(e->nmeaBuffer.sentence);
-  EventQueue::instance().push(e);
+  char line[48];
+  snprintf(line, sizeof line, "$PAITXC,%u,%u*", (unsigned)level, stored ? 1u : 0u);
+  Utils::completeNMEA(line);
+  DataTerminal::instance().write(line);
+}
+
+bool Configuration::readTXConfig(TXConfig &c)
+{
+  if ( !bsp_read_tx_config(&c) )
+    return false;
+  return c.magic == TX_CONFIG_MAGIC;
 }
 
 bool Configuration::isTXConfigured()
 {
   TXConfig c;
-  bsp_read_tx_config(&c);
-  return c.magic == TX_CONFIG_MAGIC;
+  return readTXConfig(c);
 }
 
-void Configuration::setPALevel(uint8_t value)
+bool Configuration::setPALevel(uint8_t value)
 {
-  TXConfig c = {TX_CONFIG_MAGIC, value, {0}};
-  bsp_write_tx_config(c);
+  TXConfig c = {TX_CONFIG_MAGIC, value, {0, 0, 0}};
+  return bsp_write_tx_config(c);
 }
 
 uint8_t Configuration::getPALevel()
 {
   TXConfig c;
-  bsp_read_tx_config(&c);
-  return c.pa_level;
+  if ( readTXConfig(c) )
+    return c.pa_level;
+  return RadioManager::instance().defaultPALevel();
 }
 
 

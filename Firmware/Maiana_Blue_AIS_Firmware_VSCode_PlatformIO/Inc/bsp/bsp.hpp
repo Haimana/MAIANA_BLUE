@@ -87,8 +87,8 @@ void bsp_read_xo_trim(XOTrim *t);
 void bsp_write_xo_trim(const XOTrim &t);
 void bsp_erase_xo_trim();
 
-void bsp_read_tx_config(TXConfig *c);
-void bsp_write_tx_config(const TXConfig &c);
+bool bsp_read_tx_config(TXConfig *c);
+bool bsp_write_tx_config(const TXConfig &c);
 void bsp_erase_tx_config();
 
 // Callback for processing UART input (interrupt)

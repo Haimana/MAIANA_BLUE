@@ -28,8 +28,10 @@
 #include "TXErrors.h"
 #include <stdio.h>
 #include "TXScheduler.hpp"
+#include "Configuration.hpp"
 #include "config.h"
 #include "CircularQueue.hpp"
+#include "RadioState.hpp"
 
 Transceiver::Transceiver(GPIO_TypeDef *sdnPort, uint32_t sdnPin, GPIO_TypeDef *csPort,
     uint32_t csPin, GPIO_TypeDef *dataPort, uint32_t dataPin,
@@ -79,41 +81,51 @@ void Transceiver::configure()
   memcpy(p.Data, data, sizeof data);
   sendCmd(SET_PROPERTY, &p, 12, NULL, 0);
 
-  // These resulted from characterization with default BOM
-  // To increase TX power, increase pa_level value (max 0xFF, but check hardware limits)
-  // Tuned for ~1.7W output or use stored config
+  // PA_PWR_LVL is 7-bit (0-127). pa_mode / pa_bias_clkduty follow the chip;
+  // only pa_level is taken from stored TXConfig when present.
   pa_params pwr;
-  
-  // Use configured PA level if available, otherwise use defaults
-  if ( Configuration::instance().isTXConfigured() )
-  {
-      pwr.pa_mode = 0x48;
-      pwr.pa_level = Configuration::instance().getPALevel();
-      pwr.pa_bias_clkduty = 0x00;
-  }
-  else
-  {
-    switch(mPartNumber)
-    {
-    case 0x4463:
-      pwr.pa_mode = 0x48;
-      pwr.pa_level = 0x28;  // pa_level 40
-      pwr.pa_bias_clkduty = 0x00;
-      break;
-    case 0x4467:
-      pwr.pa_mode = 0x28;
-      pwr.pa_level = 0x42;  
-      pwr.pa_bias_clkduty = 0x00;
-      break;
-    default:
-      pwr.pa_mode = 0x28;
-      pwr.pa_level = 0x42;  
-      pwr.pa_bias_clkduty = 0x00;
-      break;
-    }
-  }
+  paDefaults(mPartNumber, pwr);
+
+  TXConfig cfg;
+  if ( Configuration::instance().readTXConfig(cfg) )
+    pwr.pa_level = cfg.pa_level;
 
   setTXPower(pwr);
+}
+
+void Transceiver::paDefaults(uint16_t partNumber, pa_params &pwr)
+{
+  pwr.pa_bias_clkduty = 0x00;
+  if ( partNumber == 0x4463 )
+    {
+      pwr.pa_mode = 0x48;
+      pwr.pa_level = 0x28;
+    }
+  else
+    {
+      pwr.pa_mode = 0x28;
+      pwr.pa_level = 0x42;
+    }
+}
+
+uint8_t Transceiver::defaultPALevel() const
+{
+  pa_params pwr;
+  paDefaults(mPartNumber, pwr);
+  return pwr.pa_level;
+}
+
+bool Transceiver::applyPALevel(uint8_t level)
+{
+  pa_params pwr;
+  paDefaults(mPartNumber, pwr);
+  pwr.pa_level = level;
+
+  PrimaskGuard lock;
+  if ( gRadioState == RADIO_TRANSMITTING )
+    return false;
+  setTXPower(pwr);
+  return true;
 }
 
 void Transceiver::processEvent(const Event &e)

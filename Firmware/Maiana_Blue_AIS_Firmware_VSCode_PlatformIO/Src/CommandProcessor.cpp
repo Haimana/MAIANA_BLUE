@@ -358,15 +358,36 @@ void CommandProcessor::processCommand(const char *buff)
   else if ( s.find("pa_level ") == 0 )
     {
        string p = s.substr(9);
-       int val = atoi(p.c_str());
-       if ( val >= 0 && val <= 63 )
+       size_t i = 0;
+       while ( i < p.size() && (p[i] == ' ' || p[i] == '\t') )
+         ++i;
+       bool ok = (i < p.size() && p[i] >= '0' && p[i] <= '9');
+       unsigned val = 0;
+       while ( ok && i < p.size() && p[i] >= '0' && p[i] <= '9' )
          {
-           Configuration::instance().setPALevel((uint8_t)val);
-           DataTerminal::instance().write("OK, saved. Reboot to apply.\r\n");
+           val = val * 10u + (unsigned)(p[i] - '0');
+           if ( val > 127u )
+             ok = false;
+           else
+             ++i;
+         }
+       while ( ok && i < p.size() && (p[i] == ' ' || p[i] == '\t') )
+         ++i;
+       if ( !ok || i != p.size() )
+         {
+           DataTerminal::instance().write("Invalid level (0-127)\r\n");
+         }
+       else if ( !Configuration::instance().setPALevel((uint8_t)val) )
+         {
+           DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
+         }
+       else if ( RadioManager::instance().applyPALevel((uint8_t)val) )
+         {
+           DataTerminal::instance().write("OK, saved and applied.\r\n");
          }
        else
          {
-           DataTerminal::instance().write("Invalid level (0-127)\r\n");
+           DataTerminal::instance().write("OK, saved, applying after current TX.\r\n");
          }
     }
   else if ( s.find("pa_level?") == 0 )

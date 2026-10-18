@@ -549,27 +549,71 @@ void bsp_erase_xo_trim()
   bsp_write_xo_trim(t);
 }
 
-void bsp_read_tx_config(TXConfig *c)
+static bool eeprom_ready(void)
 {
-  // Delay before EEPROM access to ensure it's ready
-  HAL_Delay(50);
-  
-  uint8_t *d = (uint8_t*)c;
-  for ( uint8_t i = 0; i < sizeof (TXConfig); ++i, ++d )
-    {
-      HAL_I2C_Mem_Read(&hi2c1, EEPROM_ADDRESS|1, i+EEPROM_TX_CONFIG_ADDRESS, 1, d, 1, 5);
-    }
+  return HAL_I2C_IsDeviceReady(&hi2c1, EEPROM_ADDRESS, 3, 10) == HAL_OK;
 }
 
-void bsp_write_tx_config(const TXConfig &c)
+static bool eeprom_write_byte(uint16_t addr, uint8_t data)
 {
-  TXConfig __c = c;
-  uint8_t *d = (uint8_t*)&__c;
-  for ( uint8_t i = 0; i < sizeof (TXConfig); ++i, ++d )
+  if ( HAL_I2C_Mem_Write(&hi2c1, EEPROM_ADDRESS, addr, 1, &data, 1, 5) != HAL_OK )
+    return false;
+  HAL_Delay(5);
+  return true;
+}
+
+static bool eeprom_read_bytes(uint16_t addr, uint8_t *d, uint8_t len)
+{
+  for ( uint8_t i = 0; i < len; ++i, ++d )
     {
-      HAL_I2C_Mem_Write(&hi2c1, EEPROM_ADDRESS, i+EEPROM_TX_CONFIG_ADDRESS, 1, d, 1, 5);
-      HAL_Delay(5);
+      if ( HAL_I2C_Mem_Read(&hi2c1, EEPROM_ADDRESS|1, addr + i, 1, d, 1, 5) != HAL_OK )
+        return false;
     }
+  return true;
+}
+
+bool bsp_read_tx_config(TXConfig *c)
+{
+  if ( !c )
+    return false;
+  if ( !eeprom_ready() )
+    return false;
+  return eeprom_read_bytes(EEPROM_TX_CONFIG_ADDRESS, (uint8_t*)c, sizeof(TXConfig));
+}
+
+bool bsp_write_tx_config(const TXConfig &c)
+{
+  if ( !eeprom_ready() )
+    return false;
+
+  const uint16_t base = EEPROM_TX_CONFIG_ADDRESS;
+  uint8_t magic[4];
+  memcpy(magic, &c.magic, sizeof magic);
+  const uint8_t rest[4] = { c.pa_level, c.fill[0], c.fill[1], c.fill[2] };
+
+  // Invalidate magic first so a mid-write power loss cannot leave a valid
+  // magic with an old or garbage level.
+  for ( uint8_t i = 0; i < 4; ++i )
+    {
+      if ( !eeprom_write_byte(base + i, 0) )
+        return false;
+    }
+  for ( uint8_t i = 0; i < 4; ++i )
+    {
+      if ( !eeprom_write_byte(base + 4 + i, rest[i]) )
+        return false;
+    }
+  for ( uint8_t i = 0; i < 4; ++i )
+    {
+      if ( !eeprom_write_byte(base + i, magic[i]) )
+        return false;
+    }
+
+  TXConfig rb;
+  if ( !bsp_read_tx_config(&rb) )
+    return false;
+  return rb.magic == c.magic && rb.pa_level == c.pa_level
+      && rb.fill[0] == c.fill[0] && rb.fill[1] == c.fill[1] && rb.fill[2] == c.fill[2];
 }
 
 void bsp_erase_tx_config()

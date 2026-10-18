@@ -90,6 +90,7 @@ void mainLoop()
       GPS::instance().pollRX();
       UartQuiet::instance().poll();
       EventQueue::instance().dispatch();
+      RadioManager::instance().poll();
       GPS::instance().drainEcho();
       UartQuiet::instance().poll();
 #if ENABLE_WDT
