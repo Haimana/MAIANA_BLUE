@@ -697,7 +697,8 @@ void bsp_gnss_off()
 
 bool bsp_is_gnss_on()
 {
-  return HAL_GPIO_ReadPin(GNSS_EN_PORT, GNSS_EN_PIN) == GPIO_PIN_SET;
+  // GNSS_EN is active low (bsp_gnss_on() drives it RESET).
+  return HAL_GPIO_ReadPin(GNSS_EN_PORT, GNSS_EN_PIN) == GPIO_PIN_RESET;
 }
 
 void USART_putc(USART_TypeDef* USARTx, char c)
