@@ -117,6 +117,7 @@ static void skipToKnownCommand(string &s)
       "cli",
       "gps off",
       "gps on",
+      "gnss?",
       "msg24",
       "otp?",
       "otp ",
@@ -170,6 +171,7 @@ void CommandProcessor::processCommand(const char *buff)
       DataTerminal::instance().write("  msg24                               - Queue Message 24 for transmission\r\n");
       DataTerminal::instance().write("  gps on                              - Enable GNSS receiver\r\n");
       DataTerminal::instance().write("  gps off                             - Disable GNSS receiver\r\n");
+      DataTerminal::instance().write("  gnss?                               - Report GNSS UART rate / detection state ($PAIGNSS)\r\n");
       // DataTerminal::instance().write("  xotrim <value>                      - Set XO trim value\r\n");
       // DataTerminal::instance().write("  xotrim?                             - Report current XO trim value\r\n");
       // DataTerminal::instance().write("  pa_level <value>                    - Set PA level (0-63)\r\n");
@@ -333,11 +335,16 @@ void CommandProcessor::processCommand(const char *buff)
     }
   else if ( s.find("gps off") == 0 )
     {
-      bsp_gnss_off();
+      GPS::instance().disable();
     }
   else if ( s.find("gps on") == 0 )
     {
-      bsp_gnss_on();
+      // Power-cycles the module and restarts GNSS rate detection.
+      GPS::instance().enable();
+    }
+  else if ( s.find("gnss?") == 0 )
+    {
+      GPS::instance().reportLink();
     }
   else if ( s.find("msg24") == 0 )
     {
