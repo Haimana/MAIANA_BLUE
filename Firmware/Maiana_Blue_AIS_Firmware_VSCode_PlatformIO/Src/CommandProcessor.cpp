@@ -28,6 +28,9 @@
 #include "TXScheduler.hpp"
 #include "bsp.hpp"
 #include "GPS.hpp"
+#if NMEA_DIAG
+#include "UartQuiet.hpp"
+#endif
 #include "RadioManager.hpp"
 #include "EZRadioPRO.h"
 #include <stdlib.h>
@@ -89,10 +92,57 @@ void fireTestPacket()
   RadioManager::instance().sendTestPacketNow(p);
 }
 
+static void skipToKnownCommand(string &s)
+{
+  static const char *const cmds[] = {
+      "help",
+      "station ",
+      "station?",
+      "sys?",
+#if NMEA_DIAG
+      "nmea?",
+#endif
+      "hourlyreboot on",
+      "hourlyreboot off",
+      "hourlyreboot?",
+      "dfu",
+      "erase station",
+      "factory reset",
+      "tx test",
+      "tx on",
+      "tx off",
+      "tx?",
+      "stoptx",
+      "reboot",
+      "cli",
+      "gps off",
+      "gps on",
+      "msg24",
+      "otp?",
+      "otp ",
+      "xotrim ",
+      "xotrim?",
+      "pa_level ",
+      "pa_level?"
+  };
+
+  size_t best = string::npos;
+  for ( unsigned i = 0; i < sizeof cmds / sizeof cmds[0]; ++i )
+    {
+      size_t p = s.find(cmds[i]);
+      if ( p != string::npos && (best == string::npos || p < best) )
+        best = p;
+    }
+
+  if ( best != string::npos && best > 0 )
+    s.erase(0, best);
+}
+
 void CommandProcessor::processCommand(const char *buff)
 {
   string s(buff);
   Utils::trim(s);
+  skipToKnownCommand(s);
 
   if ( s.find("help") == 0 )
     {
@@ -104,6 +154,11 @@ void CommandProcessor::processCommand(const char *buff)
       DataTerminal::instance().write("  erase station                       - Erase configured station data\r\n");
       DataTerminal::instance().write("  factory reset                       - Reset all settings to factory defaults\r\n");
       DataTerminal::instance().write("  sys?                                - Report system data (FW/HW versions, uptime)\r\n");
+#if NMEA_DIAG
+      DataTerminal::instance().write("  nmea?                               - Report NMEA path diagnostics ($PAINMEA)\r\n");
+#endif
+      DataTerminal::instance().write("  hourlyreboot on|off                 - Enable/disable hourly self-reboot ($PAIHRB)\r\n");
+      DataTerminal::instance().write("  hourlyreboot?                       - Report hourly-reboot setting and uptime ($PAIHRB)\r\n");
       DataTerminal::instance().write("  reboot                              - Reboot the device\r\n");
       DataTerminal::instance().write("  dfu                                 - Jump to bootloader mode\r\n");
       DataTerminal::instance().write("  cli                                 - Reboot into dedicated CLI mode\r\n");
@@ -164,6 +219,61 @@ void CommandProcessor::processCommand(const char *buff)
     {
       Configuration::instance().reportSystemData();
     }
+  else if ( s.find("hourlyreboot on") == 0 )
+    {
+      Configuration::instance().setHourlyReboot(true);
+      Configuration::instance().reportHourlyReboot();
+    }
+  else if ( s.find("hourlyreboot off") == 0 )
+    {
+      Configuration::instance().setHourlyReboot(false);
+      Configuration::instance().reportHourlyReboot();
+    }
+  else if ( s.find("hourlyreboot?") == 0 )
+    {
+      Configuration::instance().reportHourlyReboot();
+    }
+#if NMEA_DIAG
+  else if ( s.find("nmea?") == 0 )
+    {
+      // Write directly. Queuing PROPR_NMEA_SENTENCE through the 10-deep thread
+      // pool silently dropped replies under AIS load (~40% miss in the field).
+      char line[320];
+      // 1 usart2_ore 2 usart1_ore 3 csum_drop 4 echo_ovf 5 queue_drop
+      // 6-8 usart2 fe/ne/pe 9-11 usart1 fe/ne/pe 12 cmd_drop 13 pool_drop
+      // 14 quiet_windows 15 hold_bytes 16 hold_max 17 rx_discarded 18 out_drop
+      // 19 hold_max_ms 20 cap_closes
+      // 21 slot_sent 22 slot_defer 23 max_out_lat_ms 24 slot_nofit
+      snprintf(line, sizeof line,
+          "$PAINMEA,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu*",
+          (unsigned long)bsp_gnss_ore_count(),
+          (unsigned long)bsp_uart1_ore_count(),
+          (unsigned long)GPS::instance().droppedChecksumCount(),
+          (unsigned long)GPS::instance().echoOverflowCount(),
+          (unsigned long)EventQueue::instance().droppedCount(),
+          (unsigned long)bsp_gnss_fe_count(),
+          (unsigned long)bsp_gnss_ne_count(),
+          (unsigned long)bsp_gnss_pe_count(),
+          (unsigned long)bsp_uart1_fe_count(),
+          (unsigned long)bsp_uart1_ne_count(),
+          (unsigned long)bsp_uart1_pe_count(),
+          (unsigned long)DataTerminal::instance().commandDropCount(),
+          (unsigned long)EventPool::instance().allocFailCount(),
+          (unsigned long)UartQuiet::instance().quietWindows(),
+          (unsigned long)UartQuiet::instance().holdBytes(),
+          (unsigned long)UartQuiet::instance().holdMax(),
+          (unsigned long)UartQuiet::instance().rxDiscarded(),
+          (unsigned long)UartQuiet::instance().outputDrops(),
+          (unsigned long)UartQuiet::instance().holdMaxMs(),
+          (unsigned long)UartQuiet::instance().capCloses(),
+          (unsigned long)UartQuiet::instance().slotSent(),
+          (unsigned long)UartQuiet::instance().slotDefer(),
+          (unsigned long)UartQuiet::instance().maxOutLatMs(),
+          (unsigned long)UartQuiet::instance().slotNofit());
+      Utils::completeNMEA(line);
+      DataTerminal::instance().write(line);
+    }
+#endif
   else if ( s.find("dfu") == 0 )
     {
       jumpToBootloader();
@@ -179,6 +289,7 @@ void CommandProcessor::processCommand(const char *buff)
       Configuration::instance().factoryReset();
       TXScheduler::instance().reloadStationData();
       Configuration::instance().reportStationData();
+      Configuration::instance().reportHourlyReboot();
     }
   else if ( s.find("tx test") == 0 )
     {
@@ -255,15 +366,36 @@ void CommandProcessor::processCommand(const char *buff)
   else if ( s.find("pa_level ") == 0 )
     {
        string p = s.substr(9);
-       int val = atoi(p.c_str());
-       if ( val >= 0 && val <= 63 )
+       size_t i = 0;
+       while ( i < p.size() && (p[i] == ' ' || p[i] == '\t') )
+         ++i;
+       bool ok = (i < p.size() && p[i] >= '0' && p[i] <= '9');
+       unsigned val = 0;
+       while ( ok && i < p.size() && p[i] >= '0' && p[i] <= '9' )
          {
-           Configuration::instance().setPALevel((uint8_t)val);
-           DataTerminal::instance().write("OK, saved. Reboot to apply.\r\n");
+           val = val * 10u + (unsigned)(p[i] - '0');
+           if ( val > 127u )
+             ok = false;
+           else
+             ++i;
+         }
+       while ( ok && i < p.size() && (p[i] == ' ' || p[i] == '\t') )
+         ++i;
+       if ( !ok || i != p.size() )
+         {
+           DataTerminal::instance().write("Invalid level (0-127)\r\n");
+         }
+       else if ( !Configuration::instance().setPALevel((uint8_t)val) )
+         {
+           DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
+         }
+       else if ( RadioManager::instance().applyPALevel((uint8_t)val) )
+         {
+           DataTerminal::instance().write("OK, saved and applied.\r\n");
          }
        else
          {
-           DataTerminal::instance().write("Invalid level (0-127)\r\n");
+           DataTerminal::instance().write("OK, saved, applying after current TX.\r\n");
          }
     }
   else if ( s.find("pa_level?") == 0 )

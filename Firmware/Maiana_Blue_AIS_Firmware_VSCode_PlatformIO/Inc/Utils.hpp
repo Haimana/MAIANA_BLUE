@@ -44,6 +44,7 @@ public:
   static float longitudeFromNMEA(const string &decimal, const string &hemisphere);
   static uint32_t coordinateToUINT32(double value);
   static float coordinateFromUINT32(uint32_t aisCoordinate, uint8_t numBits);
+  static bool nmeaChecksumValid(const char *buff);
 
   // ARM-specific utilities
   static bool inISR();

@@ -26,6 +26,8 @@
 #include <cstring>
 #include <bsp/bsp.hpp>
 #include "bsp.hpp"
+#include "DataTerminal.hpp"
+#include "RadioManager.hpp"
 
 
 // These are not defined in ANY CMSIS or HAL header, WTF???
@@ -54,28 +56,34 @@ Configuration::Configuration()
 void Configuration::init()
 {
   bool cliBootMode = *(uint32_t*)BOOTMODE_ADDRESS == CLI_FLAG_MAGIC;
-  
+
+  bsp_read_config_flags(&mFlags);
+
   if ( !cliBootMode )
     {
       reportSystemData();
       reportStationData();
+      reportHourlyReboot();
     }
+}
 
-  bsp_read_config_flags(&mFlags);
+void Configuration::ensureFlags()
+{
+  if ( mFlags.magic != CONFIG_FLAGS_MAGIC )
+    mFlags = {CONFIG_FLAGS_MAGIC, 0, {0}};
 }
 
 void Configuration::enableTX()
 {
-  // For now, the only flag in use is a TX switch bit which is set to 0
-  mFlags = {CONFIG_FLAGS_MAGIC, 0, {0}};
+  ensureFlags();
+  mFlags.flags[0] &= ~CONFIG_FLAG_TX_INHIBIT;
   bsp_write_config_flags(mFlags);
 }
 
 void Configuration::disableTX()
 {
-  // For now, the only flag in use is a TX switch bit which is set to 1
-  mFlags = {CONFIG_FLAGS_MAGIC, 0, {0}};
-  mFlags.flags[0] = 0x01;
+  ensureFlags();
+  mFlags.flags[0] |= CONFIG_FLAG_TX_INHIBIT;
   bsp_write_config_flags(mFlags);
 }
 
@@ -84,8 +92,35 @@ bool Configuration::isTXEnabled()
   if ( mFlags.magic != CONFIG_FLAGS_MAGIC )
     return true;
 
-  // Bit 0 in word 0 inhibits transmission
-  return (mFlags.flags[0] & 0x01) == 0;
+  return (mFlags.flags[0] & CONFIG_FLAG_TX_INHIBIT) == 0;
+}
+
+void Configuration::setHourlyReboot(bool enabled)
+{
+  ensureFlags();
+  if ( enabled )
+    mFlags.flags[0] &= ~CONFIG_FLAG_HRB_INHIBIT;
+  else
+    mFlags.flags[0] |= CONFIG_FLAG_HRB_INHIBIT;
+  bsp_write_config_flags(mFlags);
+}
+
+bool Configuration::isHourlyRebootEnabled() const
+{
+  if ( mFlags.magic != CONFIG_FLAGS_MAGIC )
+    return true;
+
+  return (mFlags.flags[0] & CONFIG_FLAG_HRB_INHIBIT) == 0;
+}
+
+void Configuration::reportHourlyReboot()
+{
+  char line[64];
+  snprintf(line, sizeof line, "$PAIHRB,%u,%lu*",
+      isHourlyRebootEnabled() ? 1u : 0u,
+      (unsigned long)(HAL_GetTick() / 1000u));
+  Utils::completeNMEA(line);
+  DataTerminal::instance().write(line);
 }
 
 const char *Configuration::hwRev()
@@ -268,38 +303,41 @@ uint8_t Configuration::getXOTrimValue()
 
 void Configuration::reportTXConfig()
 {
-  uint8_t value = 0;
-  if ( this->isTXConfigured() )
-    {
-      value = this->getPALevel();
-    }
-  
-  Event *e = EventPool::instance().newEvent(PROPR_NMEA_SENTENCE);
-  if ( !e ) return;
+  TXConfig c;
+  const bool stored = readTXConfig(c);
+  const uint8_t level = stored ? c.pa_level : RadioManager::instance().defaultPALevel();
 
-  sprintf(e->nmeaBuffer.sentence, "$PAITXC,%d*", value);
-  Utils::completeNMEA(e->nmeaBuffer.sentence);
-  EventQueue::instance().push(e);
+  char line[48];
+  snprintf(line, sizeof line, "$PAITXC,%u,%u*", (unsigned)level, stored ? 1u : 0u);
+  Utils::completeNMEA(line);
+  DataTerminal::instance().write(line);
+}
+
+bool Configuration::readTXConfig(TXConfig &c)
+{
+  if ( !bsp_read_tx_config(&c) )
+    return false;
+  return c.magic == TX_CONFIG_MAGIC;
 }
 
 bool Configuration::isTXConfigured()
 {
   TXConfig c;
-  bsp_read_tx_config(&c);
-  return c.magic == TX_CONFIG_MAGIC;
+  return readTXConfig(c);
 }
 
-void Configuration::setPALevel(uint8_t value)
+bool Configuration::setPALevel(uint8_t value)
 {
-  TXConfig c = {TX_CONFIG_MAGIC, value, {0}};
-  bsp_write_tx_config(c);
+  TXConfig c = {TX_CONFIG_MAGIC, value, {0, 0, 0}};
+  return bsp_write_tx_config(c);
 }
 
 uint8_t Configuration::getPALevel()
 {
   TXConfig c;
-  bsp_read_tx_config(&c);
-  return c.pa_level;
+  if ( readTXConfig(c) )
+    return c.pa_level;
+  return RadioManager::instance().defaultPALevel();
 }
 
 

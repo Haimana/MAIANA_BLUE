@@ -20,6 +20,8 @@
 
 #include "RadioManager.hpp"
 #include "NoiseFloorDetector.hpp"
+#include "Configuration.hpp"
+#include "RadioState.hpp"
 #include "bsp.hpp"
 #include "TXErrors.h"
 
@@ -40,6 +42,8 @@ RadioManager::RadioManager()
   mReceiverIC = NULL;
   mInitializing = true;
   mUTC = 0;
+  mPALevelPending = false;
+  mPendingPALevel = 0;
   EventQueue::instance().addObserver(this, CLOCK_EVENT);
 }
 
@@ -137,8 +141,60 @@ void RadioManager::configureInterrupts()
   bsp_set_rx_clk_callback(rxClockCB);
 }
 
+uint8_t RadioManager::defaultPALevel()
+{
+  if ( mTransceiverIC )
+    return mTransceiverIC->defaultPALevel();
+
+  pa_params pwr;
+  Transceiver::paDefaults(0, pwr);
+  return pwr.pa_level;
+}
+
+bool RadioManager::paApplyBlocked() const
+{
+  if ( gRadioState == RADIO_TRANSMITTING )
+    return true;
+  if ( mTransceiverIC && mTransceiverIC->assignedTXPacket() )
+    return true;
+  return false;
+}
+
+void RadioManager::applyPendingPALevel()
+{
+  if ( !mPALevelPending )
+    return;
+  if ( paApplyBlocked() || !mTransceiverIC )
+    return;
+  if ( mTransceiverIC->applyPALevel(mPendingPALevel) )
+    mPALevelPending = false;
+}
+
+void RadioManager::poll()
+{
+  applyPendingPALevel();
+}
+
+bool RadioManager::applyPALevel(uint8_t level)
+{
+  mPendingPALevel = level;
+  if ( !mTransceiverIC )
+    {
+      mPALevelPending = false;
+      return true;
+    }
+  if ( paApplyBlocked() || !mTransceiverIC->applyPALevel(level) )
+    {
+      mPALevelPending = true;
+      return false;
+    }
+  mPALevelPending = false;
+  return true;
+}
+
 void RadioManager::processEvent(const Event &e)
 {
+  applyPendingPALevel();
   mUTC = e.clock.utc;
 
   if ( mStartTime == 0 )
@@ -166,12 +222,13 @@ void RadioManager::processEvent(const Event &e)
       // The transceiver will switch channel if the packet channel is different
       mTransceiverIC->assignTXPacket(packet);
     }
-  else if ( mUTC - mStartTime >= 3600 )
+  else if ( Configuration::instance().isHourlyRebootEnabled() &&
+            mUTC - mStartTime >= 3600 )
     {
       /**
        * For some reason, RX performance seems to go downhill after many hours
        * of continuous operation, so the easiest remedy is to reboot every hour.
-       * The impact of this is pretty small.
+       * Optional via `hourlyreboot on|off` (default on).
        */
 
       bsp_reboot();

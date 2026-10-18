@@ -24,6 +24,7 @@
 #include <map>
 #include "CircularQueue.hpp"
 #include "Events.hpp"
+#include "config.h"
 
 
 using namespace std;
@@ -49,6 +50,9 @@ public:
    * We push events here to be processed by the dispatching task
    */
   bool push(Event *event);
+#if NMEA_DIAG
+  uint32_t droppedCount() const;
+#endif
 
   /*
    * This method must be called repeatedly by an RTOS task or main() (never an ISR)
@@ -59,6 +63,9 @@ private:
   CircularQueue<Event*> mISRQueue;
   CircularQueue<Event*> mTaskQueue;
   map<EventConsumer *, uint32_t> mConsumers;
+#if NMEA_DIAG
+  volatile uint32_t mDropped;
+#endif
 };
 
 #endif /* EVENTQUEUE_HPP_ */

@@ -42,6 +42,9 @@ public:
 #else
   void write(const char* line);
 #endif
+#if NMEA_DIAG
+  uint32_t commandDropCount() const;
+#endif
 private:
   DataTerminal();
   void processCommand(const char*);

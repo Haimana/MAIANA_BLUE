@@ -212,3 +212,35 @@ void Utils::completeNMEA(char *buff)
 
   sprintf(buff+p+1, "%.2X\r\n", crc);
 }
+
+static int hexNibble(char c)
+{
+  if ( c >= '0' && c <= '9' )
+    return c - '0';
+  if ( c >= 'A' && c <= 'F' )
+    return c - 'A' + 10;
+  if ( c >= 'a' && c <= 'f' )
+    return c - 'a' + 10;
+  return -1;
+}
+
+bool Utils::nmeaChecksumValid(const char *buff)
+{
+  if ( !buff || (buff[0] != '$' && buff[0] != '!') )
+    return false;
+
+  const char *star = strchr(buff, '*');
+  if ( !star )
+    return false;
+
+  const int hi = hexNibble(star[1]);
+  const int lo = hexNibble(star[2]);
+  if ( hi < 0 || lo < 0 )
+    return false;
+
+  unsigned actual = 0;
+  for ( const char *c = buff + 1; c < star; ++c )
+    actual ^= (unsigned char)*c;
+
+  return actual == (unsigned)((hi << 4) | lo);
+}

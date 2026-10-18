@@ -22,6 +22,7 @@
 #include "bsp.hpp"
 #include <stm32l4xx_hal.h>
 #include "printf_serial.h"
+#include "UartQuiet.hpp"
 #include <string.h>
 #include <stdio.h>
 
@@ -44,6 +45,17 @@ IWDG_HandleTypeDef hiwdg;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart1;
 TIM_HandleTypeDef htim2;
+DMA_HandleTypeDef hdma_usart2_rx;
+
+#define GNSS_DMA_BUF_SIZE 1024
+static volatile uint8_t sGnssDmaBuf[GNSS_DMA_BUF_SIZE];
+static uint16_t sGnssDmaRead = 0;
+#if NMEA_DIAG
+static volatile uint32_t sUsart2OreCount = 0;
+static volatile uint32_t sUsart2FeCount = 0;
+static volatile uint32_t sUsart2NeCount = 0;
+static volatile uint32_t sUsart2PeCount = 0;
+#endif
 
 void SystemClock_Config();
 
@@ -232,11 +244,27 @@ void bsp_hw_init()
   huart2.AdvancedInit.AdvFeatureInit  = UART_ADVFEATURE_NO_INIT;
   HAL_UART_Init(&huart2);
 
-  // IRQ test 4.5.4: USART2=2 (above AIS) so SOTDMA/RX/TX bit-clock keep priority 1.
-  // At 115200 a byte arrives every ~87us; watch for merged NMEA ($GNRMC...$GNRMC).
-  HAL_NVIC_SetPriority(USART2_IRQn, 2, 0);
-  HAL_NVIC_EnableIRQ(USART2_IRQn);
-  __HAL_UART_ENABLE_IT(&huart2, UART_IT_RXNE);
+  // Polled circular DMA for LC76G RX. Radio bit-clock ISRs (prio 1) plus
+  // reportRSSI/SPI waits can exceed the 87 us USART2 character time and
+  // overrun a byte-IRQ receiver. DMA1 Ch6 / request 2 = USART2_RX on L432.
+  // No DMA or USART2 IRQ: the radio priorities stay untouched.
+  __HAL_RCC_DMA1_CLK_ENABLE();
+  hdma_usart2_rx.Instance                 = DMA1_Channel6;
+  hdma_usart2_rx.Init.Request             = DMA_REQUEST_2;
+  hdma_usart2_rx.Init.Direction           = DMA_PERIPH_TO_MEMORY;
+  hdma_usart2_rx.Init.PeriphInc           = DMA_PINC_DISABLE;
+  hdma_usart2_rx.Init.MemInc              = DMA_MINC_ENABLE;
+  hdma_usart2_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+  hdma_usart2_rx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;
+  hdma_usart2_rx.Init.Mode                = DMA_CIRCULAR;
+  hdma_usart2_rx.Init.Priority            = DMA_PRIORITY_HIGH;
+  if ( HAL_DMA_Init(&hdma_usart2_rx) != HAL_OK )
+    Error_Handler(0);
+
+  HAL_DMA_Start(&hdma_usart2_rx, (uint32_t)&USART2->RDR, (uint32_t)sGnssDmaBuf, GNSS_DMA_BUF_SIZE);
+  SET_BIT(USART2->CR3, USART_CR3_DMAR);
+  __HAL_UART_DISABLE_IT(&huart2, UART_IT_RXNE);
+  HAL_NVIC_DisableIRQ(USART2_IRQn);
 
   // TIM2 for SOTDMA (37.5Hz)
   uint32_t period = (SystemCoreClock / 37.5) - 1;
@@ -523,27 +551,71 @@ void bsp_erase_xo_trim()
   bsp_write_xo_trim(t);
 }
 
-void bsp_read_tx_config(TXConfig *c)
+static bool eeprom_ready(void)
 {
-  // Delay before EEPROM access to ensure it's ready
-  HAL_Delay(50);
-  
-  uint8_t *d = (uint8_t*)c;
-  for ( uint8_t i = 0; i < sizeof (TXConfig); ++i, ++d )
-    {
-      HAL_I2C_Mem_Read(&hi2c1, EEPROM_ADDRESS|1, i+EEPROM_TX_CONFIG_ADDRESS, 1, d, 1, 5);
-    }
+  return HAL_I2C_IsDeviceReady(&hi2c1, EEPROM_ADDRESS, 3, 10) == HAL_OK;
 }
 
-void bsp_write_tx_config(const TXConfig &c)
+static bool eeprom_write_byte(uint16_t addr, uint8_t data)
 {
-  TXConfig __c = c;
-  uint8_t *d = (uint8_t*)&__c;
-  for ( uint8_t i = 0; i < sizeof (TXConfig); ++i, ++d )
+  if ( HAL_I2C_Mem_Write(&hi2c1, EEPROM_ADDRESS, addr, 1, &data, 1, 5) != HAL_OK )
+    return false;
+  HAL_Delay(5);
+  return true;
+}
+
+static bool eeprom_read_bytes(uint16_t addr, uint8_t *d, uint8_t len)
+{
+  for ( uint8_t i = 0; i < len; ++i, ++d )
     {
-      HAL_I2C_Mem_Write(&hi2c1, EEPROM_ADDRESS, i+EEPROM_TX_CONFIG_ADDRESS, 1, d, 1, 5);
-      HAL_Delay(5);
+      if ( HAL_I2C_Mem_Read(&hi2c1, EEPROM_ADDRESS|1, addr + i, 1, d, 1, 5) != HAL_OK )
+        return false;
     }
+  return true;
+}
+
+bool bsp_read_tx_config(TXConfig *c)
+{
+  if ( !c )
+    return false;
+  if ( !eeprom_ready() )
+    return false;
+  return eeprom_read_bytes(EEPROM_TX_CONFIG_ADDRESS, (uint8_t*)c, sizeof(TXConfig));
+}
+
+bool bsp_write_tx_config(const TXConfig &c)
+{
+  if ( !eeprom_ready() )
+    return false;
+
+  const uint16_t base = EEPROM_TX_CONFIG_ADDRESS;
+  uint8_t magic[4];
+  memcpy(magic, &c.magic, sizeof magic);
+  const uint8_t rest[4] = { c.pa_level, c.fill[0], c.fill[1], c.fill[2] };
+
+  // Invalidate magic first so a mid-write power loss cannot leave a valid
+  // magic with an old or garbage level.
+  for ( uint8_t i = 0; i < 4; ++i )
+    {
+      if ( !eeprom_write_byte(base + i, 0) )
+        return false;
+    }
+  for ( uint8_t i = 0; i < 4; ++i )
+    {
+      if ( !eeprom_write_byte(base + 4 + i, rest[i]) )
+        return false;
+    }
+  for ( uint8_t i = 0; i < 4; ++i )
+    {
+      if ( !eeprom_write_byte(base + i, magic[i]) )
+        return false;
+    }
+
+  TXConfig rb;
+  if ( !bsp_read_tx_config(&rb) )
+    return false;
+  return rb.magic == c.magic && rb.pa_level == c.pa_level
+      && rb.fill[0] == c.fill[0] && rb.fill[1] == c.fill[1] && rb.fill[2] == c.fill[2];
 }
 
 void bsp_erase_tx_config()
@@ -639,6 +711,90 @@ void USART_putc(USART_TypeDef* USARTx, char c)
 bool bsp_uart1_can_write()
 {
   return (USART1->ISR & USART_ISR_TXE) != 0;
+}
+
+#if NMEA_DIAG
+static volatile uint32_t sUsart1OreCount = 0;
+static volatile uint32_t sUsart1FeCount = 0;
+static volatile uint32_t sUsart1NeCount = 0;
+static volatile uint32_t sUsart1PeCount = 0;
+
+uint32_t bsp_uart1_ore_count()
+{
+  return sUsart1OreCount;
+}
+
+uint32_t bsp_uart1_fe_count()
+{
+  return sUsart1FeCount;
+}
+
+uint32_t bsp_uart1_ne_count()
+{
+  return sUsart1NeCount;
+}
+
+uint32_t bsp_uart1_pe_count()
+{
+  return sUsart1PeCount;
+}
+
+uint32_t bsp_gnss_ore_count()
+{
+  return sUsart2OreCount;
+}
+
+uint32_t bsp_gnss_fe_count()
+{
+  return sUsart2FeCount;
+}
+
+uint32_t bsp_gnss_ne_count()
+{
+  return sUsart2NeCount;
+}
+
+uint32_t bsp_gnss_pe_count()
+{
+  return sUsart2PeCount;
+}
+
+static void countUsart2Errors(uint32_t isr)
+{
+  if ( isr & USART_ISR_ORE )
+    sUsart2OreCount++;
+  if ( isr & USART_ISR_FE )
+    sUsart2FeCount++;
+  if ( isr & USART_ISR_NE )
+    sUsart2NeCount++;
+  if ( isr & USART_ISR_PE )
+    sUsart2PeCount++;
+}
+#endif
+
+void bsp_poll_gnss_rx()
+{
+  const uint32_t isr = USART2->ISR;
+  if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
+    {
+#if NMEA_DIAG
+      countUsart2Errors(isr);
+#endif
+      USART2->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
+    }
+
+  const uint16_t write = (uint16_t)(GNSS_DMA_BUF_SIZE - (uint16_t)hdma_usart2_rx.Instance->CNDTR);
+  uint16_t n = 0;
+  while ( sGnssDmaRead != write && n < GNSS_DMA_BUF_SIZE )
+    {
+      char c = (char)sGnssDmaBuf[sGnssDmaRead];
+      sGnssDmaRead++;
+      if ( sGnssDmaRead >= GNSS_DMA_BUF_SIZE )
+        sGnssDmaRead = 0;
+      if ( gnssInputCallback )
+        gnssInputCallback(c);
+      ++n;
+    }
 }
 
 void bsp_write_char(char c)
@@ -778,11 +934,37 @@ extern "C"
 
   void USART1_IRQHandler(void)
   {
-    if ( __HAL_UART_GET_IT(&huart1, UART_IT_RXNE) )
+    const uint32_t isr = USART1->ISR;
+
+    // ORE stays set after a RDR read and will retrigger RXNEIE. Clear error
+    // flags first, but do not discard RDR: on overrun the unread byte is still
+    // valid and RXNE is set. FE/NE/PE are cleared the same way so a bad CLI
+    // byte cannot lock the IRQ.
+    if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
       {
-        __HAL_UART_CLEAR_IT(&huart1, UART_IT_RXNE);
-        char c = USART1->RDR;
-        if ( terminalInputCallback )
+#if NMEA_DIAG
+        if ( isr & USART_ISR_ORE )
+          sUsart1OreCount++;
+        if ( isr & USART_ISR_FE )
+          sUsart1FeCount++;
+        if ( isr & USART_ISR_NE )
+          sUsart1NeCount++;
+        if ( isr & USART_ISR_PE )
+          sUsart1PeCount++;
+#endif
+        USART1->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
+      }
+
+    if ( isr & USART_ISR_RXNE )
+      {
+        char c = (char)USART1->RDR;
+        if ( gUart1RxMute )
+          {
+#if NMEA_DIAG
+            gUart1RxDiscard++;
+#endif
+          }
+        else if ( terminalInputCallback )
           terminalInputCallback(c);
       }
   }
@@ -799,18 +981,15 @@ extern "C"
 
   void USART2_IRQHandler()
   {
-    if ( __HAL_UART_GET_FLAG(&huart2, UART_FLAG_ORE) )
+    // USART2 NVIC is disabled; this is only a safety net. DMA owns RDR, so
+    // never read it here (that used to drop a valid byte on ORE).
+    const uint32_t isr = USART2->ISR;
+    if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
       {
-        __HAL_UART_CLEAR_FLAG(&huart2, UART_CLEAR_OREF);
-        (void)USART2->RDR;
-      }
-
-    if ( __HAL_UART_GET_IT(&huart2, UART_IT_RXNE) )
-      {
-        __HAL_UART_CLEAR_IT(&huart2, UART_IT_RXNE);
-        char c = (char)USART2->RDR;
-        if ( gnssInputCallback )
-          gnssInputCallback(c);
+#if NMEA_DIAG
+        countUsart2Errors(isr);
+#endif
+        USART2->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
       }
   }
 

@@ -48,13 +48,18 @@ public:
   void disableTX();
   bool isTXEnabled();
 
+  void setHourlyReboot(bool enabled);
+  bool isHourlyRebootEnabled() const;
+  void reportHourlyReboot();
+
   bool isXOTrimmed();
   void setXOTrimValue(uint8_t value);
   uint8_t getXOTrimValue();
   void reportXOTrimValue();
 
   bool isTXConfigured();
-  void setPALevel(uint8_t value);
+  bool readTXConfig(TXConfig &c);
+  bool setPALevel(uint8_t value);
   uint8_t getPALevel();
   void reportTXConfig();
 
@@ -62,6 +67,7 @@ public:
 private:
 
   Configuration();
+  void ensureFlags();
 
   uint32_t nextAvailableOTPSlot();
   const char *hwRev();

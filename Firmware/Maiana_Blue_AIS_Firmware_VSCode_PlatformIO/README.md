@@ -48,11 +48,15 @@ The following summarizes **this PlatformIO tree** relative to the sibling **Cube
 
 ### Application / firmware version
 
-- **`FW_REV`** in `Inc/config.h` is **4.5.0** here vs **4.4.1** in `../Maiana_Blue_AIS_Firmware/Inc/config.h` (reported in `$PAISYS` and related output).
+- **`FW_REV`** in `Inc/config.h` is **4.5.13** here vs **4.4.1** in `../Maiana_Blue_AIS_Firmware/Inc/config.h` (reported in `$PAISYS` and related output).
 
 ### RF transmit power
 
-- **Configurable PA level** stored in flash (`TXConfig` / BSP `bsp_*_tx_config`), CLI commands **`pa_level`** / **`pa_level?`**, and proprietary sentence **`$PAITXC`**.
+- **Configurable PA level** (Si446x `PA_PWR_LVL`, **0–127**) stored in EEPROM (`TXConfig` / BSP `bsp_*_tx_config`).
+- CLI **`pa_level <n>`** accepts a plain decimal integer 0–127 (optional surrounding whitespace). Empty input, letters, trailing junk (`33abc`), negatives, and values above 127 are rejected with `Invalid level (0-127)` and are **not** saved.
+- After a **verified** EEPROM write, the new level is applied live via `Transceiver::setTXPower` using the same per-chip `pa_mode` / `pa_bias_clkduty` as the defaults. If a transmission is active or imminent, apply is deferred until the radio is idle. Success replies: **`OK, saved and applied.`** or **`OK, saved, applying after current TX.`** EEPROM failure: **`ERROR: EEPROM write failed`**.
+- **`pa_level?`** reports **`$PAITXC,<effective_level>,<stored 0|1>*HH`**. The first field is the effective level (stored value, or the per-chip default). The second field is `1` if a stored config is present, otherwise `0`.
+- `pa_mode` / `pa_bias_clkduty` always follow the chip part number; only `pa_level` is taken from stored config.
 - The CubeIDE sibling in this repo uses **fixed** PA parameters in `Transceiver.cpp` and **does not** expose those CLI commands.
 
 ### Global radio state
@@ -64,10 +68,11 @@ The following summarizes **this PlatformIO tree** relative to the sibling **Cube
 
 - **`$PAIOTP`** includes an extra field: **`BSP_HW_REV`** (board support package hardware revision string).
 - **`factory reset`** in `Configuration.cpp` **does not** erase XO trim in this tree (call to `bsp_erase_xo_trim()` commented out); behaviour may differ from the CubeIDE project.
+- **`NMEA_DIAG`** (`Inc/config.h`, default **0**) gates the **`nmea?`** command and the counters that exist only to feed **`$PAINMEA`**. Slot-aligned USART1 output, hold/queue, checksum drops, and error-flag clearing stay on regardless. Enable with `-DNMEA_DIAG=1` in `platformio.ini` `build_flags` (or `#define NMEA_DIAG 1` before the default in `config.h`). With the flag off, `nmea?` is not a recognized command.
 
 ### Default PA tuning (when no stored TX config)
 
-- When no valid stored PA configuration is present, default `pa_mode` / `pa_level` values in **`Transceiver.cpp`** differ from the older fixed table in the 4.4.1 tree (intended for updated hardware power targets; always validate on your hardware).
+- When no valid stored PA configuration is present, defaults come from **`Transceiver::paDefaults()`**: Si4463 uses `pa_mode` 0x48 / `pa_level` 0x28 (40); Si4467 and other parts use `pa_mode` 0x28 / `pa_level` 0x42 (66). Always validate on your hardware.
 
 ### Optional / work-in-progress sources
 

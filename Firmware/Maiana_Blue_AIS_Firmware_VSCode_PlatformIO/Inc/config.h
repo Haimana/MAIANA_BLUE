@@ -25,7 +25,7 @@
 #include "TXPowerSettings.h"
 
 
-#define FW_REV                        "4.5.4"
+#define FW_REV                        "4.5.14"
 
 /*
  * Defining this symbol forces all output (NMEA + debug) to a high-speed USART for tunneling to an application that demuxes it.
@@ -55,6 +55,12 @@
 // Set to true to emit proprietary NMEA sentences for debugging TX scheduling. Not useful in production.
 #define REPORT_TX_SCHEDULING           0
 
+// nmea? / $PAINMEA counters and command. Off by default; integrity path stays on.
+// Override with -DNMEA_DIAG=1 in platformio.ini build_flags.
+#ifndef NMEA_DIAG
+#define NMEA_DIAG                      0
+#endif
+
 // Set to true to force RSSI sampling at every SOTDMA timer slot on both channels
 #define FULL_RSSI_SAMPLING             1
 
@@ -78,6 +84,30 @@
 // The spec calls for Class B transmitters to listen for the first 20 bits of each frame before transmitting.
 // It takes the Si4463 a few bits' time to switch from RX to TX, so I arbitrarily picked the 12th bit instead.
 #define CCA_SLOT_BIT                  11
+
+/*
+ * USART1 (host/ESP32/USB) slot-aligned output around own AIS TX.
+ *
+ * Class B CS may start TX at CCA_SLOT_BIT (11) of any later slot while a
+ * packet is assigned. A PRE mute cannot cover that (4.5.7 stalled for
+ * minutes; 4.5.8 capped at 90 ms, then TX started mid-sentence).
+ *
+ * While a packet is eligible, USART1 may only START a sentence after this
+ * slot's CCA did not transmit, and only if the sentence finishes before the
+ * next bit 11 plus SLOT_MARGIN. One slot = 256 bits @ 9600 (~26.67 ms).
+ * An 82-char 8N1 line is ~21.4 ms at 38400, so a free slot carries at least
+ * one sentence. No packet pending → free run. TX + POST still hold.
+ *
+ * 4.5.9 field: max_out_lat_ms 553 with hold_max 374 — an AIVDM burst plus a
+ * GNSS 1 Hz dump (~20 long lines) while slot-gated, and a 3 ms margin left
+ * only ~2 ms to start an 82-char GSV. Skip WFI while output is pending so
+ * the bit-12 window is not missed; close a split hold after OPEN_HOLD_MS.
+ */
+#define UART_QUIET_POST_TX_MS          8
+#define UART_QUIET_MAX_MS             90
+#define UART_QUIET_SLOT_MARGIN_MS      2
+#define UART_QUIET_OPEN_HOLD_MS       40
+#define UART_QUIET_HOLD_BUF          512
 
 
 #define BOOTMODE_ADDRESS              0x20009C00

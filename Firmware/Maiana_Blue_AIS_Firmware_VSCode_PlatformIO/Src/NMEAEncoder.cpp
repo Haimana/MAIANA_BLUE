@@ -108,7 +108,7 @@ void NMEAEncoder::encode(RXPacket &packet, vector<string> &sentences)
         }
 
       sentence[k++] = '*';
-      sprintf(sentence+k, "%.2X", nmeaCRC(sentence));
+      sprintf(sentence+k, "%.2X\r\n", nmeaCRC(sentence));
       sentences.push_back(string(sentence));
     }
 

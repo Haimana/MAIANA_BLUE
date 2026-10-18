@@ -8,6 +8,11 @@
 #ifndef INC_CONFIGFLAGS_H_
 #define INC_CONFIGFLAGS_H_
 
+// flags[0] bit 0: TX inhibit (1 = silent). Absent magic → TX enabled.
+// flags[0] bit 1: hourly-reboot inhibit (1 = off). Absent magic → reboot on.
+#define CONFIG_FLAG_TX_INHIBIT      0x01u
+#define CONFIG_FLAG_HRB_INHIBIT     0x02u
+
 typedef struct
 {
   uint32_t magic;

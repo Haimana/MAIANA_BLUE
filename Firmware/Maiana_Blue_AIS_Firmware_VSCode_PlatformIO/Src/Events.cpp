@@ -62,6 +62,9 @@ EventPool &EventPool::instance()
 
 EventPool::EventPool()
   : mISRPool(25), mThreadPool(10), mRXPool(20)
+#if NMEA_DIAG
+    , mAllocFail(0)
+#endif
 {
 }
 
@@ -97,11 +100,23 @@ Event *EventPool::newEvent(EventType type)
   //if ( !result)
 
   if ( result == nullptr )
-    return result;
+    {
+#if NMEA_DIAG
+      mAllocFail++;
+#endif
+      return result;
+    }
 
   ASSERT_VALID_PTR(result);
   return result;
 }
+
+#if NMEA_DIAG
+uint32_t EventPool::allocFailCount() const
+{
+  return mAllocFail;
+}
+#endif
 
 void EventPool::deleteEvent(Event *event)
 {

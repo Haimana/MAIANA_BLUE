@@ -40,6 +40,19 @@ void bsp_hw_init();
 void bsp_write_char(const char c);
 void bsp_write_string(const char *s);
 bool bsp_uart1_can_write();
+#if NMEA_DIAG
+uint32_t bsp_uart1_ore_count();
+uint32_t bsp_uart1_fe_count();
+uint32_t bsp_uart1_ne_count();
+uint32_t bsp_uart1_pe_count();
+#endif
+void bsp_poll_gnss_rx();
+#if NMEA_DIAG
+uint32_t bsp_gnss_ore_count();
+uint32_t bsp_gnss_fe_count();
+uint32_t bsp_gnss_ne_count();
+uint32_t bsp_gnss_pe_count();
+#endif
 void bsp_set_rx_mode();
 void bsp_set_tx_mode();
 void bsp_start_wdt();
@@ -78,8 +91,8 @@ void bsp_read_xo_trim(XOTrim *t);
 void bsp_write_xo_trim(const XOTrim &t);
 void bsp_erase_xo_trim();
 
-void bsp_read_tx_config(TXConfig *c);
-void bsp_write_tx_config(const TXConfig &c);
+bool bsp_read_tx_config(TXConfig *c);
+bool bsp_write_tx_config(const TXConfig &c);
 void bsp_erase_tx_config();
 
 // Callback for processing UART input (interrupt)

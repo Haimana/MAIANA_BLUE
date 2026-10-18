@@ -21,10 +21,17 @@
 #include "DataTerminal.hpp"
 #include "Events.hpp"
 #include "Utils.hpp"
+#include "GPS.hpp"
+#include "UartQuiet.hpp"
 #include "bsp.hpp"
+#include <ctype.h>
+#include <stdio.h>
 
 static char __rxbuff[80];
 static uint8_t __rxpos = 0;
+#if NMEA_DIAG
+static volatile uint32_t sCommandDrop = 0;
+#endif
 
 void termInputCB(char c);
 
@@ -70,21 +77,29 @@ void DataTerminal::processEvent(const Event &e)
 
 void DataTerminal::write(const char *cls, const char* s)
 {
-  bsp_write_char('[');
-  bsp_write_string(cls);
-  bsp_write_char(']');
-  bsp_write_string(s);
+  GPS::instance().flushEchoLine();
+  char line[160];
+  snprintf(line, sizeof line, "[%s]%s", cls ? cls : "", s ? s : "");
+  UartQuiet::instance().write(line);
 }
 
 #else
 
 void DataTerminal::write(const char* s)
 {
-  bsp_write_string(s);
+  GPS::instance().flushEchoLine();
+  UartQuiet::instance().write(s);
 }
 #endif
 
 
+
+#if NMEA_DIAG
+uint32_t DataTerminal::commandDropCount() const
+{
+  return sCommandDrop;
+}
+#endif
 
 void DataTerminal::_write(const char *s)
 {
@@ -103,6 +118,12 @@ void termInputCB(char c)
       return;
     }
 
+  // TX EMI on USART1 RX often prefixes a command with junk (0xAA, 'b', …).
+  // Every CLI verb starts with a letter; drop leading non-alpha so "nmea?"
+  // is not stored as "\xAAnmea?" and then ignored by a prefix match.
+  if ( __rxpos == 0 && c != '\n' && !isalpha((unsigned char)c) )
+    return;
+
   __rxbuff[__rxpos++] = c;
   if ( __rxpos >= sizeof __rxbuff )
     {
@@ -112,8 +133,15 @@ void termInputCB(char c)
     {
       __rxbuff[__rxpos++] = 0;
       Event *e = EventPool::instance().newEvent(COMMAND_EVENT);
-      strlcpy(e->command.buffer, __rxbuff, sizeof e->command.buffer);
-      EventQueue::instance().push(e);
+      if ( e )
+        {
+          strlcpy(e->command.buffer, __rxbuff, sizeof e->command.buffer);
+          EventQueue::instance().push(e);
+        }
+#if NMEA_DIAG
+      else
+        sCommandDrop++;
+#endif
       __rxpos = 0;
     }
 }

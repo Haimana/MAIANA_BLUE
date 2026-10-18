@@ -23,6 +23,7 @@
 #include "NMEASentence.hpp"
 #include "Utils.hpp"
 #include "EventQueue.hpp"
+#include "UartQuiet.hpp"
 #include "bsp.hpp"
 #include <stm32l4xx_hal.h>
 #include <stdio.h>
@@ -35,19 +36,30 @@ void gnss1PPSCB();
 void gnssSOTDMACB();
 
 // LC76G default output is ~1.5KB/s (1Hz burst). USART1 at 38400 (~3.8KB/s) can
-// relay the full stream if echo is non-blocking and nav parsing stays lightweight.
+// relay the full stream. Drain complete lines only so AIVDM/$PAI cannot land
+// mid-sentence (that was the ESP32 "glue" class).
 #define GPS_ECHO_BUF_SIZE           2560
-#define GPS_ECHO_DRAIN_MAX          48
+#define GPS_ECHO_DRAIN_LINES        2
 
 static char sEchoBuf[GPS_ECHO_BUF_SIZE];
 static volatile uint16_t sEchoHead = 0;
 static volatile uint16_t sEchoTail = 0;
+#if NMEA_DIAG
+static volatile uint32_t sDroppedChecksum = 0;
+static volatile uint32_t sEchoOverflow = 0;
+#endif
+static bool sEchoMidLine = false;
 
 static void echoPush(char c)
 {
   uint16_t next = (uint16_t)((sEchoHead + 1) % GPS_ECHO_BUF_SIZE);
   if ( next == sEchoTail )
-    return;
+    {
+#if NMEA_DIAG
+      sEchoOverflow++;
+#endif
+      return;
+    }
 
   sEchoBuf[sEchoHead] = c;
   sEchoHead = next;
@@ -168,15 +180,26 @@ void GPS::onRX(char c)
       mBuff[mBuffPos] = 0;
 
       if ( mBuff[0] == '$' )
-        echoPushLine(mBuff, mBuffPos);
-
-      if ( isNavSentence(mBuff) )
         {
-          Event *e = EventPool::instance().newEvent(GPS_NMEA_SENTENCE);
-          if ( e )
+          if ( !Utils::nmeaChecksumValid(mBuff) )
             {
-              strlcpy(e->nmeaBuffer.sentence, mBuff, sizeof e->nmeaBuffer.sentence);
-              EventQueue::instance ().push(e);
+#if NMEA_DIAG
+              sDroppedChecksum++;
+#endif
+            }
+          else
+            {
+              echoPushLine(mBuff, mBuffPos);
+
+              if ( isNavSentence(mBuff) )
+                {
+                  Event *e = EventPool::instance().newEvent(GPS_NMEA_SENTENCE);
+                  if ( e )
+                    {
+                      strlcpy(e->nmeaBuffer.sentence, mBuff, sizeof e->nmeaBuffer.sentence);
+                      EventQueue::instance ().push(e);
+                    }
+                }
             }
         }
 
@@ -185,18 +208,97 @@ void GPS::onRX(char c)
     }
 }
 
+static void echoWriteChar(char c)
+{
+  UartQuiet::instance().writeCharRaw(c);
+  sEchoMidLine = (c != '\n');
+}
+
+void GPS::flushEchoLine()
+{
+  if ( !sEchoMidLine )
+    return;
+
+  while ( sEchoTail != sEchoHead )
+    {
+      char c = sEchoBuf[sEchoTail];
+      sEchoTail = (uint16_t)((sEchoTail + 1) % GPS_ECHO_BUF_SIZE);
+      echoWriteChar(c);
+      if ( c == '\n' )
+        return;
+    }
+
+  sEchoMidLine = false;
+}
+
+void GPS::pollRX()
+{
+  bsp_poll_gnss_rx();
+}
+
+static uint16_t echoPeekLineLen()
+{
+  if ( sEchoTail == sEchoHead )
+    return 0;
+
+  uint16_t i = sEchoTail;
+  uint16_t n = 0;
+  while ( i != sEchoHead )
+    {
+      n++;
+      if ( sEchoBuf[i] == '\n' )
+        return n;
+      i = (uint16_t)((i + 1) % GPS_ECHO_BUF_SIZE);
+    }
+
+  return 0;
+}
+
 void GPS::drainEcho()
 {
-  for ( int i = 0; i < GPS_ECHO_DRAIN_MAX; ++i )
+  // Yield between sentences, never in the middle of one. A long GSV line is
+  // ~21 ms at 38400; dispatch() can emit AIVDM only after '\n'.
+  // While a TX packet is pending, pack as many whole sentences as fit in
+  // the current free-slot window (then stop until the next CCA-no-TX).
+  static uint16_t sDeferTail = 0xffff;
+  const int maxLines = UartQuiet::instance().slotGated() ? 8 : GPS_ECHO_DRAIN_LINES;
+
+  for ( int n = 0; n < maxLines; ++n )
     {
       if ( sEchoTail == sEchoHead )
         return;
 
-      if ( !bsp_uart1_can_write() )
-        return;
+      if ( !sEchoMidLine )
+        {
+          const uint16_t len = echoPeekLineLen();
+          if ( len == 0 )
+            return;
 
-      bsp_write_char(sEchoBuf[sEchoTail]);
-      sEchoTail = (uint16_t)((sEchoTail + 1) % GPS_ECHO_BUF_SIZE);
+          if ( !bsp_uart1_can_write() )
+            return;
+
+          if ( !UartQuiet::instance().canStartBytes(len) )
+            {
+              if ( sDeferTail != sEchoTail )
+                {
+                  sDeferTail = sEchoTail;
+                  UartQuiet::instance().noteDefer(len);
+                }
+              return;
+            }
+
+          sDeferTail = 0xffff;
+          UartQuiet::instance().noteStart();
+        }
+
+      while ( sEchoTail != sEchoHead )
+        {
+          char c = sEchoBuf[sEchoTail];
+          sEchoTail = (uint16_t)((sEchoTail + 1) % GPS_ECHO_BUF_SIZE);
+          echoWriteChar(c);
+          if ( c == '\n' )
+            break;
+        }
     }
 }
 
@@ -246,20 +348,25 @@ void GPS::processEvent(const Event &event)
 
 void GPS::processLine(const char* buff)
 {
-  if ( buff[0] == '$' && buff[1] != '$' )
-    {
-      unsigned reportedHash;
-      char *starPos = strstr(buff, "*");
-      if ( starPos && sscanf(starPos + 1, "%x", &reportedHash) == 1 )
-        {
-          unsigned actualHash = 0;
-          for ( const char* c = buff + 1; c < starPos; ++c )
-            actualHash ^= *c;
+  if ( buff[0] == '$' && buff[1] != '$' && Utils::nmeaChecksumValid(buff) )
+    parseSentence(buff);
+}
 
-          if ( reportedHash == actualHash )
-            parseSentence(buff);
-        }
-    }
+#if NMEA_DIAG
+uint32_t GPS::droppedChecksumCount() const
+{
+  return sDroppedChecksum;
+}
+
+uint32_t GPS::echoOverflowCount() const
+{
+  return sEchoOverflow;
+}
+#endif
+
+bool GPS::echoPending() const
+{
+  return sEchoTail != sEchoHead;
 }
 
 bool GPS::isValidNmeaDate(const char *ddmmyy)

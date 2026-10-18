@@ -24,6 +24,8 @@
 #include "Receiver.hpp"
 #include "TXPacket.hpp"
 #include "Events.hpp"
+#include "TXPowerSettings.h"
+#include <stdint.h>
 #include <map>
 
 class Transceiver : public Receiver, public EventConsumer
@@ -44,9 +46,14 @@ public:
   void timeSlotStarted(uint32_t slot);
   void assignTXPacket(TXPacket *p);
   TXPacket *assignedTXPacket();
+  uint32_t msUntilPossibleTx() const;
+  uint32_t bitsUntilPossibleTx() const;
   void startReceiving(VHFChannel channel, bool reconfigGPIOs);
   void transmitCW(VHFChannel channel);
   void processEvent(const Event &);
+  uint8_t defaultPALevel() const;
+  static void paDefaults(uint16_t partNumber, pa_params &pwr);
+  bool applyPALevel(uint8_t level);
 
 protected:
   void configure();

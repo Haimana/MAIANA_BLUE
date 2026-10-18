@@ -22,6 +22,7 @@
 #include "printf_serial.h"
 #include "printf_serial.h"
 #include "Utils.hpp"
+#include "GPS.hpp"
 #include "bsp.hpp"
 #include "config.h"
 
@@ -34,6 +35,9 @@ EventQueue &EventQueue::instance()
 
 EventQueue::EventQueue()
   : mISRQueue(25), mTaskQueue(10)
+#if NMEA_DIAG
+    , mDropped(0)
+#endif
 {
 }
 
@@ -47,6 +51,9 @@ bool EventQueue::push(Event *e)
     {
       if ( !mISRQueue.push(e) )
         {
+#if NMEA_DIAG
+          mDropped++;
+#endif
           EventPool::instance().deleteEvent(e);
           return false;
         }
@@ -55,6 +62,9 @@ bool EventQueue::push(Event *e)
     {
       if ( !mTaskQueue.push(e) )
         {
+#if NMEA_DIAG
+          mDropped++;
+#endif
           EventPool::instance().deleteEvent(e);
           return false;
         }
@@ -62,6 +72,13 @@ bool EventQueue::push(Event *e)
 
   return true;
 }
+
+#if NMEA_DIAG
+uint32_t EventQueue::droppedCount() const
+{
+  return mDropped;
+}
+#endif
 
 void EventQueue::addObserver(EventConsumer *c, uint32_t eventMask)
 {
@@ -92,6 +109,7 @@ void EventQueue::dispatch()
         }
 
       EventPool::instance().deleteEvent(e);
+      GPS::instance().pollRX();
 #if ENABLE_WDT
       bsp_refresh_wdt();
 #endif
@@ -108,6 +126,7 @@ void EventQueue::dispatch()
         }
 
       EventPool::instance().deleteEvent(e);
+      GPS::instance().pollRX();
 #if ENABLE_WDT
       bsp_refresh_wdt();
 #endif
