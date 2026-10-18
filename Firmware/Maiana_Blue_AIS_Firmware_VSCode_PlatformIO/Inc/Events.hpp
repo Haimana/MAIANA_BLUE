@@ -22,6 +22,7 @@
 #define EVENTS_HPP_
 
 #include "EventTypes.h"
+#include "config.h"
 #include <time.h>
 #include <cstring>
 #include "NMEASentence.hpp"
@@ -124,7 +125,9 @@ public:
   void deleteEvent(Event *event);
   uint32_t utilization();
   uint32_t maxUtilization();
+#if NMEA_DIAG
   uint32_t allocFailCount() const;
+#endif
   RXPacket *newRXPacket();
   void releaseRXPacket(RXPacket *);
 private:
@@ -134,7 +137,9 @@ private:
   ObjectPool<Event>     mISRPool;
   ObjectPool<Event>     mThreadPool;
   ObjectPool<RXPacket>  mRXPool;
+#if NMEA_DIAG
   volatile uint32_t     mAllocFail;
+#endif
 };
 
 #endif /* EVENTS_HPP_ */

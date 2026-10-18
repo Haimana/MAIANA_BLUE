@@ -50,10 +50,12 @@ DMA_HandleTypeDef hdma_usart2_rx;
 #define GNSS_DMA_BUF_SIZE 1024
 static volatile uint8_t sGnssDmaBuf[GNSS_DMA_BUF_SIZE];
 static uint16_t sGnssDmaRead = 0;
+#if NMEA_DIAG
 static volatile uint32_t sUsart2OreCount = 0;
 static volatile uint32_t sUsart2FeCount = 0;
 static volatile uint32_t sUsart2NeCount = 0;
 static volatile uint32_t sUsart2PeCount = 0;
+#endif
 
 void SystemClock_Config();
 
@@ -711,6 +713,7 @@ bool bsp_uart1_can_write()
   return (USART1->ISR & USART_ISR_TXE) != 0;
 }
 
+#if NMEA_DIAG
 static volatile uint32_t sUsart1OreCount = 0;
 static volatile uint32_t sUsart1FeCount = 0;
 static volatile uint32_t sUsart1NeCount = 0;
@@ -767,13 +770,16 @@ static void countUsart2Errors(uint32_t isr)
   if ( isr & USART_ISR_PE )
     sUsart2PeCount++;
 }
+#endif
 
 void bsp_poll_gnss_rx()
 {
   const uint32_t isr = USART2->ISR;
   if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
     {
+#if NMEA_DIAG
       countUsart2Errors(isr);
+#endif
       USART2->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
     }
 
@@ -936,6 +942,7 @@ extern "C"
     // byte cannot lock the IRQ.
     if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
       {
+#if NMEA_DIAG
         if ( isr & USART_ISR_ORE )
           sUsart1OreCount++;
         if ( isr & USART_ISR_FE )
@@ -944,6 +951,7 @@ extern "C"
           sUsart1NeCount++;
         if ( isr & USART_ISR_PE )
           sUsart1PeCount++;
+#endif
         USART1->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
       }
 
@@ -952,7 +960,9 @@ extern "C"
         char c = (char)USART1->RDR;
         if ( gUart1RxMute )
           {
+#if NMEA_DIAG
             gUart1RxDiscard++;
+#endif
           }
         else if ( terminalInputCallback )
           terminalInputCallback(c);
@@ -976,7 +986,9 @@ extern "C"
     const uint32_t isr = USART2->ISR;
     if ( isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE) )
       {
+#if NMEA_DIAG
         countUsart2Errors(isr);
+#endif
         USART2->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF;
       }
   }

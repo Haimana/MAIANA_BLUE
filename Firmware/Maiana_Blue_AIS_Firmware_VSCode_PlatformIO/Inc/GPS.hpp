@@ -23,6 +23,7 @@
 
 #include <inttypes.h>
 #include <time.h>
+#include "config.h"
 #include "EventQueue.hpp"
 
 class NMEASentence;
@@ -65,8 +66,10 @@ public:
 	void pollRX();
 	void drainEcho();
 	void flushEchoLine();
+#if NMEA_DIAG
 	uint32_t droppedChecksumCount() const;
 	uint32_t echoOverflowCount() const;
+#endif
 	bool echoPending() const;
 
 private:

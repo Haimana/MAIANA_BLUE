@@ -25,7 +25,7 @@
 #include "TXPowerSettings.h"
 
 
-#define FW_REV                        "4.5.13"
+#define FW_REV                        "4.5.14"
 
 /*
  * Defining this symbol forces all output (NMEA + debug) to a high-speed USART for tunneling to an application that demuxes it.
@@ -54,6 +54,12 @@
 
 // Set to true to emit proprietary NMEA sentences for debugging TX scheduling. Not useful in production.
 #define REPORT_TX_SCHEDULING           0
+
+// nmea? / $PAINMEA counters and command. Off by default; integrity path stays on.
+// Override with -DNMEA_DIAG=1 in platformio.ini build_flags.
+#ifndef NMEA_DIAG
+#define NMEA_DIAG                      0
+#endif
 
 // Set to true to force RSSI sampling at every SOTDMA timer slot on both channels
 #define FULL_RSSI_SAMPLING             1

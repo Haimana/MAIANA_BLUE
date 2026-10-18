@@ -44,8 +44,10 @@ void gnssSOTDMACB();
 static char sEchoBuf[GPS_ECHO_BUF_SIZE];
 static volatile uint16_t sEchoHead = 0;
 static volatile uint16_t sEchoTail = 0;
+#if NMEA_DIAG
 static volatile uint32_t sDroppedChecksum = 0;
 static volatile uint32_t sEchoOverflow = 0;
+#endif
 static bool sEchoMidLine = false;
 
 static void echoPush(char c)
@@ -53,7 +55,9 @@ static void echoPush(char c)
   uint16_t next = (uint16_t)((sEchoHead + 1) % GPS_ECHO_BUF_SIZE);
   if ( next == sEchoTail )
     {
+#if NMEA_DIAG
       sEchoOverflow++;
+#endif
       return;
     }
 
@@ -179,7 +183,9 @@ void GPS::onRX(char c)
         {
           if ( !Utils::nmeaChecksumValid(mBuff) )
             {
+#if NMEA_DIAG
               sDroppedChecksum++;
+#endif
             }
           else
             {
@@ -346,6 +352,7 @@ void GPS::processLine(const char* buff)
     parseSentence(buff);
 }
 
+#if NMEA_DIAG
 uint32_t GPS::droppedChecksumCount() const
 {
   return sDroppedChecksum;
@@ -355,6 +362,7 @@ uint32_t GPS::echoOverflowCount() const
 {
   return sEchoOverflow;
 }
+#endif
 
 bool GPS::echoPending() const
 {

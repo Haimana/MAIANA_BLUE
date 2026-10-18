@@ -28,7 +28,9 @@
 #include "TXScheduler.hpp"
 #include "bsp.hpp"
 #include "GPS.hpp"
+#if NMEA_DIAG
 #include "UartQuiet.hpp"
+#endif
 #include "RadioManager.hpp"
 #include "EZRadioPRO.h"
 #include <stdlib.h>
@@ -97,7 +99,9 @@ static void skipToKnownCommand(string &s)
       "station ",
       "station?",
       "sys?",
+#if NMEA_DIAG
       "nmea?",
+#endif
       "hourlyreboot on",
       "hourlyreboot off",
       "hourlyreboot?",
@@ -150,7 +154,9 @@ void CommandProcessor::processCommand(const char *buff)
       DataTerminal::instance().write("  erase station                       - Erase configured station data\r\n");
       DataTerminal::instance().write("  factory reset                       - Reset all settings to factory defaults\r\n");
       DataTerminal::instance().write("  sys?                                - Report system data (FW/HW versions, uptime)\r\n");
+#if NMEA_DIAG
       DataTerminal::instance().write("  nmea?                               - Report NMEA path diagnostics ($PAINMEA)\r\n");
+#endif
       DataTerminal::instance().write("  hourlyreboot on|off                 - Enable/disable hourly self-reboot ($PAIHRB)\r\n");
       DataTerminal::instance().write("  hourlyreboot?                       - Report hourly-reboot setting and uptime ($PAIHRB)\r\n");
       DataTerminal::instance().write("  reboot                              - Reboot the device\r\n");
@@ -227,6 +233,7 @@ void CommandProcessor::processCommand(const char *buff)
     {
       Configuration::instance().reportHourlyReboot();
     }
+#if NMEA_DIAG
   else if ( s.find("nmea?") == 0 )
     {
       // Write directly. Queuing PROPR_NMEA_SENTENCE through the 10-deep thread
@@ -266,6 +273,7 @@ void CommandProcessor::processCommand(const char *buff)
       Utils::completeNMEA(line);
       DataTerminal::instance().write(line);
     }
+#endif
   else if ( s.find("dfu") == 0 )
     {
       jumpToBootloader();

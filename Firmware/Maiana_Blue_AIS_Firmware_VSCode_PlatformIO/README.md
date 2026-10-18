@@ -68,6 +68,7 @@ The following summarizes **this PlatformIO tree** relative to the sibling **Cube
 
 - **`$PAIOTP`** includes an extra field: **`BSP_HW_REV`** (board support package hardware revision string).
 - **`factory reset`** in `Configuration.cpp` **does not** erase XO trim in this tree (call to `bsp_erase_xo_trim()` commented out); behaviour may differ from the CubeIDE project.
+- **`NMEA_DIAG`** (`Inc/config.h`, default **0**) gates the **`nmea?`** command and the counters that exist only to feed **`$PAINMEA`**. Slot-aligned USART1 output, hold/queue, checksum drops, and error-flag clearing stay on regardless. Enable with `-DNMEA_DIAG=1` in `platformio.ini` `build_flags` (or `#define NMEA_DIAG 1` before the default in `config.h`). With the flag off, `nmea?` is not a recognized command.
 
 ### Default PA tuning (when no stored TX config)
 

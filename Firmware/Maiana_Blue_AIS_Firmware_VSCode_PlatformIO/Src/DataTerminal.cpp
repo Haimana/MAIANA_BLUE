@@ -29,7 +29,9 @@
 
 static char __rxbuff[80];
 static uint8_t __rxpos = 0;
+#if NMEA_DIAG
 static volatile uint32_t sCommandDrop = 0;
+#endif
 
 void termInputCB(char c);
 
@@ -92,10 +94,12 @@ void DataTerminal::write(const char* s)
 
 
 
+#if NMEA_DIAG
 uint32_t DataTerminal::commandDropCount() const
 {
   return sCommandDrop;
 }
+#endif
 
 void DataTerminal::_write(const char *s)
 {
@@ -134,8 +138,10 @@ void termInputCB(char c)
           strlcpy(e->command.buffer, __rxbuff, sizeof e->command.buffer);
           EventQueue::instance().push(e);
         }
+#if NMEA_DIAG
       else
         sCommandDrop++;
+#endif
       __rxpos = 0;
     }
 }
