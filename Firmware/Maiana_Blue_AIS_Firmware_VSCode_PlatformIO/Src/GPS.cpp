@@ -407,11 +407,19 @@ void GPS::parseRmc(const NMEASentence &sentence)
   if (fields.size () < 10)
     return;
 
+  // RMC arrives every second even without time or fix: no time means no
+  // fix, so drop the GPS LED (master behaviour).
   if (fields[1].length () < 6 || fields[9].length () < 6)
-    return;
+    {
+      bsp_gps_led_off();
+      return;
+    }
 
   if ( !isValidNmeaDate(fields[9].c_str()) )
-    return;
+    {
+      bsp_gps_led_off();
+      return;
+    }
 
   const string &timestr = fields[1].substr (0, 6);
   const string &datestr = fields[9].substr (0, 6);
@@ -433,6 +441,10 @@ void GPS::parseRmc(const NMEASentence &sentence)
           Utils::longitudeFromNMEA (fields[5], fields[6]),
           atof(fields[7].c_str()),
           atof(fields[8].c_str()));
+    }
+  else
+    {
+      bsp_gps_led_off();
     }
 }
 
