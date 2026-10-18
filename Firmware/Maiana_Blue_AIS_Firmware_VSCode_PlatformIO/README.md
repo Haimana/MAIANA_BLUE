@@ -1,11 +1,6 @@
 # MAIANA Blue AIS firmware — VS Code / PlatformIO
 
-This directory is the **PlatformIO** build of the MAIANA-class AIS transponder firmware. It lives alongside the **original CubeIDE / Eclipse** tree in this repository:
-
-| Directory | Toolchain | Notes |
-|-----------|-----------|--------|
-| **`../Maiana_Blue_AIS_Firmware/`** | STM32CubeIDE (Eclipse CDT), STM32CubeMX `.ioc`, OpenOCD scripts | Reference “original” layout for this repo. |
-| **`./` (this folder)** | **VS Code + PlatformIO** (`platformio.ini`) | Same application family, newer source line and multi-environment builds. |
+This directory is the **PlatformIO** build (VS Code + PlatformIO, `platformio.ini`) of the MAIANA-class AIS transponder firmware. It was ported from the original **STM32CubeIDE / Eclipse** project (`Maiana_Blue_AIS_Firmware/`), which has been removed from this repository; this tree is now the only AIS firmware source.
 
 Upstream concept and license remain those of the **MAIANA** project (GPL v3, Peter Antypas).
 
@@ -37,9 +32,9 @@ PIO_COPY_FIRMWARE_BIN=0 pio run -e L432-NewBreakouts-Bootloader
 
 ---
 
-## Differences vs `../Maiana_Blue_AIS_Firmware/` (original in this repo)
+## Differences vs the original CubeIDE project (removed)
 
-The following summarizes **this PlatformIO tree** relative to the sibling **CubeIDE** project **as checked into this repository** (not every historical upstream tag).
+The following summarizes **this PlatformIO tree** relative to the original **CubeIDE** project it was ported from (formerly `Firmware/Maiana_Blue_AIS_Firmware/`, still available in git history; not every historical upstream tag).
 
 ### Build system and project files
 
@@ -48,7 +43,7 @@ The following summarizes **this PlatformIO tree** relative to the sibling **Cube
 
 ### Application / firmware version
 
-- **`FW_REV`** in `Inc/config.h` is **4.5.13** here vs **4.4.1** in `../Maiana_Blue_AIS_Firmware/Inc/config.h` (reported in `$PAISYS` and related output).
+- **`FW_REV`** in `Inc/config.h` is **4.5.14** here vs **4.4.1** in the original CubeIDE project (reported in `$PAISYS` and related output).
 
 ### RF transmit power
 
@@ -57,12 +52,12 @@ The following summarizes **this PlatformIO tree** relative to the sibling **Cube
 - After a **verified** EEPROM write, the new level is applied live via `Transceiver::setTXPower` using the same per-chip `pa_mode` / `pa_bias_clkduty` as the defaults. If a transmission is active or imminent, apply is deferred until the radio is idle. Success replies: **`OK, saved and applied.`** or **`OK, saved, applying after current TX.`** EEPROM failure: **`ERROR: EEPROM write failed`**.
 - **`pa_level?`** reports **`$PAITXC,<effective_level>,<stored 0|1>*HH`**. The first field is the effective level (stored value, or the per-chip default). The second field is `1` if a stored config is present, otherwise `0`.
 - `pa_mode` / `pa_bias_clkduty` always follow the chip part number; only `pa_level` is taken from stored config.
-- The CubeIDE sibling in this repo uses **fixed** PA parameters in `Transceiver.cpp` and **does not** expose those CLI commands.
+- The original CubeIDE project used **fixed** PA parameters in `Transceiver.cpp` and **does not** expose those CLI commands.
 
 ### Global radio state
 
 - **`gRadioState`** is declared **`extern`** in `Inc/RadioState.hpp` and defined once in **`Src/Receiver.cpp`**, so all translation units share a single RX/TX state variable.
-- The CubeIDE tree in this repo keeps **`static volatile RadioState gRadioState`** in the header, which can create **separate copies** per `.cpp` that includes the header — a known pitfall for receiver/transmitter coordination.
+- The original CubeIDE tree kept **`static volatile RadioState gRadioState`** in the header, which can create **separate copies** per `.cpp` that includes the header — a known pitfall for receiver/transmitter coordination.
 
 ### NMEA and configuration behaviour
 
