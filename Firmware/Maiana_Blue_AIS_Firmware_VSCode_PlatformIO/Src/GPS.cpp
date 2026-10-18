@@ -374,8 +374,10 @@ bool GPS::isValidNmeaDate(const char *ddmmyy)
   if ( !ddmmyy || strlen(ddmmyy) < 6 )
     return false;
 
+  // Two-digit NMEA year. Receivers without a valid time report a default
+  // date such as 060180 (1980); without the upper bound that became 2080.
   int year = Utils::toInt(std::string(ddmmyy + 4, 2));
-  return year >= 24;
+  return year >= 24 && year < 80;
 }
 
 void GPS::applyFix(float lat, float lng, float speed, float cog)
