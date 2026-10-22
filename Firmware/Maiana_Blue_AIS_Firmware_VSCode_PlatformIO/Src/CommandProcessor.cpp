@@ -28,6 +28,7 @@
 #include "TXScheduler.hpp"
 #include "bsp.hpp"
 #include "GPS.hpp"
+#include "VesselHeading.hpp"
 #if NMEA_DIAG
 #include "UartQuiet.hpp"
 #endif
@@ -118,6 +119,9 @@ static void skipToKnownCommand(string &s)
       "gps off",
       "gps on",
       "gnss?",
+      "heading off",
+      "heading?",
+      "heading ",
       "msg24",
       "otp?",
       "otp ",
@@ -143,6 +147,13 @@ void CommandProcessor::processCommand(const char *buff)
 {
   string s(buff);
   Utils::trim(s);
+
+  if ( !s.empty() && s[0] == '$' )
+    {
+      VesselHeading::instance().acceptSentence(s.c_str());
+      return;
+    }
+
   skipToKnownCommand(s);
 
   if ( s.find("help") == 0 )
@@ -172,6 +183,9 @@ void CommandProcessor::processCommand(const char *buff)
       DataTerminal::instance().write("  gps on                              - Enable GNSS receiver\r\n");
       DataTerminal::instance().write("  gps off                             - Disable GNSS receiver\r\n");
       DataTerminal::instance().write("  gnss?                               - Report GNSS UART rate / detection state ($PAIGNSS)\r\n");
+      DataTerminal::instance().write("  heading <deg>                      - Set true heading for message 18 (0-360)\r\n");
+      DataTerminal::instance().write("  heading off                         - Clear true heading (message 18 sends 511)\r\n");
+      DataTerminal::instance().write("  heading?                            - Report true heading ($PAIHDG)\r\n");
       // DataTerminal::instance().write("  xotrim <value>                      - Set XO trim value\r\n");
       // DataTerminal::instance().write("  xotrim?                             - Report current XO trim value\r\n");
       // DataTerminal::instance().write("  pa_level <value>                    - Set PA level (0-63)\r\n");
@@ -345,6 +359,31 @@ void CommandProcessor::processCommand(const char *buff)
   else if ( s.find("gnss?") == 0 )
     {
       GPS::instance().reportLink();
+    }
+  else if ( s.find("heading off") == 0 )
+    {
+      VesselHeading::instance().clear();
+      VesselHeading::instance().report();
+    }
+  else if ( s.find("heading?") == 0 )
+    {
+      VesselHeading::instance().report();
+    }
+  else if ( s.find("heading ") == 0 )
+    {
+      float deg = 0.f;
+      char *end = 0;
+      const string p = s.substr(8);
+      deg = strtof(p.c_str(), &end);
+      while ( end && (*end == ' ' || *end == '\t') )
+        ++end;
+      if ( !end || end == p.c_str() || *end != 0 || deg < 0.f || deg > 360.f )
+        DataTerminal::instance().write("Invalid heading (0-360)\r\n");
+      else
+        {
+          VesselHeading::instance().setTrueDegrees(deg);
+          VesselHeading::instance().report();
+        }
     }
   else if ( s.find("msg24") == 0 )
     {

@@ -43,7 +43,7 @@ The following summarizes **this PlatformIO tree** relative to the original **Cub
 
 ### Application / firmware version
 
-- **`FW_REV`** in `Inc/config.h` is **4.5.15** here vs **4.4.1** in the original CubeIDE project (reported in `$PAISYS` and related output).
+- **`FW_REV`** in `Inc/config.h` is **4.5.16** here vs **4.4.1** in the original CubeIDE project (reported in `$PAISYS` and related output).
 
 ### RF transmit power
 

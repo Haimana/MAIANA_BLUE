@@ -289,6 +289,7 @@ bool AISMessage15::decode(const RXPacket &packet)
 AISMessage18::AISMessage18()
 {
   mType = 18;
+  trueHeading = 511;
 }
 
 void AISMessage18::encode(const StationData &station, TXPacket &packet)
@@ -329,8 +330,8 @@ void AISMessage18::encode(const StationData &station, TXPacket &packet)
   value = (uint32_t)(cog * 10);
   addBits(payload, size, value, 12);  // COG
 
-  value = 511;
-  addBits(payload, size, value, 9);   // We don't know our heading
+  value = (trueHeading <= 359 || trueHeading == 511) ? trueHeading : 511;
+  addBits(payload, size, value, 9);   // True heading, 511 = not available
 
   value = utc % 60;
   addBits(payload, size, value, 6);   // UTC second.

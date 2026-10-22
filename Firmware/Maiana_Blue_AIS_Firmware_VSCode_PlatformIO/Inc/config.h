@@ -25,7 +25,10 @@
 #include "TXPowerSettings.h"
 
 
-#define FW_REV                        "4.5.15"
+#define FW_REV                        "4.5.16"
+
+// Message 18 true heading is dropped (511) when the last sample is older than this.
+#define HEADING_MAX_AGE_MS            10000
 
 /*
  * Defining this symbol forces all output (NMEA + debug) to a high-speed USART for tunneling to an application that demuxes it.

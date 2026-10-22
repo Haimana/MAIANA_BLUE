@@ -109,6 +109,7 @@ public:
   float sog;
   float cog;
   time_t utc;
+  uint16_t trueHeading; // 0-359, or 511 when unknown
 
   AISMessage18();
 

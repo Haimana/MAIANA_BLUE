@@ -121,7 +121,8 @@ void termInputCB(char c)
   // TX EMI on USART1 RX often prefixes a command with junk (0xAA, 'b', …).
   // Every CLI verb starts with a letter; drop leading non-alpha so "nmea?"
   // is not stored as "\xAAnmea?" and then ignored by a prefix match.
-  if ( __rxpos == 0 && c != '\n' && !isalpha((unsigned char)c) )
+  // '$' starts an HDT/HDG/PAIHDG sentence. Other non-alpha bytes are TX EMI.
+  if ( __rxpos == 0 && c != '\n' && c != '$' && !isalpha((unsigned char)c) )
     return;
 
   __rxbuff[__rxpos++] = c;

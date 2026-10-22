@@ -19,6 +19,7 @@
 
 
 #include "TXScheduler.hpp"
+#include "VesselHeading.hpp"
 #include "EventQueue.hpp"
 #include "AISMessages.hpp"
 #include "TXPacket.hpp"
@@ -209,6 +210,7 @@ void TXScheduler::queueMessage18(VHFChannel channel)
   msg.sog         = mLastGPSFix.speed;
   msg.cog         = mLastGPSFix.cog;
   msg.utc         = mLastGPSFix.utc;
+  msg.trueHeading = VesselHeading::instance().aisValue();
   msg.encode (mStationData, *p1);
 
   RadioManager::instance ().scheduleTransmission (p1);
