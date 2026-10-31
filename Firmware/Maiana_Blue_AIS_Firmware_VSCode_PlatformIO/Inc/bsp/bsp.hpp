@@ -136,23 +136,8 @@ uint8_t bsp_tx_spi_byte(uint8_t b);
 
 extern const char *BSP_HW_REV;
 
-// BSP headers go here
-
-#if BOARD_REV == 93
-#include <bsp_9_3.hpp>
-#elif BOARD_REV == 100
-#include <bsp_10_0.hpp>
-#elif BOARD_REV == 101
-#include <bsp_10_1.hpp>
-#elif BOARD_REV == 105
-#include <bsp_10_5.hpp>
-#elif BOARD_REV == 109
-#include <bsp_10_9.hpp>
-#elif BOARD_REV == 110
-#include <bsp_11_0.hpp>
-#elif BOARD_REV == 113 || BOARD_REV == 114
+// BSP header
 #include <bsp_11_3.hpp>
-#endif
 
 /**
  * GNSS link capability.
