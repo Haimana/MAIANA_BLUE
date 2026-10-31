@@ -8,7 +8,9 @@ Upstream concept and license remain those of the **MAIANA** project (GPL v3, Pet
 
 ## Current repository layout (this tree)
 
-- **`platformio.ini`** — defines multiple `[env:...]` targets (L432 / L412, legacy vs new breakout, with or without bootloader offset `0x4800`). In the stock file, **only one** environment is active (`L432-NewBreakouts-Bootloader`); the others are present but **commented out** — uncomment the block you need before building.
+- **`platformio.ini`** — defines multiple `[env:...]` targets for STM32L432 (legacy vs new breakout, with or without bootloader offset `0x4800`). In the stock file, **only one** environment is active (`L432-NewBreakouts-Bootloader`); others are present but **commented out** — uncomment the block you need before building.
+  > [!NOTE]
+  > **STM32L412 is unsupported in current firmware**: The compiled binary is ~132 KB, far exceeding the 64 KB flash limit of STM32L412 (and the 56 KB / 64 KB linker script limits). Furthermore, legacy BSP files (e.g. `bsp_9_3`) previously associated with L412 have been removed; current code requires STM32L432 (256 KB Flash) and `bsp_11_10`. Any commented-out L412 / L422 blocks in `platformio.ini` are obsolete stubs.
 - **`Src/`**, **`Inc/`**, **`Drivers/`**, **`startup/`**, linker scripts — same overall structure as the CubeIDE project; build filters select BSP and startup per environment.
 - **`Python/`** — `fwupdate-py3.py` and bootloader helpers for field updates.
 - **`Binaries/`** — post-build **`.bin`** copies from `pio run` (see below). Release images in this folder are **tracked in git**; add or update them when you publish a new build.
@@ -69,9 +71,10 @@ The following summarizes **this PlatformIO tree** relative to the original **Cub
 
 - When no valid stored PA configuration is present, defaults come from **`Transceiver::paDefaults()`**: Si4463 uses `pa_mode` 0x48 / `pa_level` 0x28 (40); Si4467 and other parts use `pa_mode` 0x28 / `pa_level` 0x42 (66). Always validate on your hardware.
 
-### Optional / work-in-progress sources
+### Board Support Package (BSP) consolidation
 
-- **`Inc/bsp/bsp_11_9.hpp`** and **`Src/bsp/bsp_11_9.cpp`** exist here but are **not** wired into `Inc/bsp/bsp.hpp` in the stock configuration — treat as **WIP** unless you integrate them and add a matching `BOARD_REV` / build environment.
+- The codebase is consolidated around **`bsp_11_10`** (`Inc/bsp/bsp_11_10.hpp` and `Src/bsp/bsp_11_10.cpp`), which reports `BSP_HW_REV` 11.10.0 for STM32L432 hardware.
+- Legacy BSP implementations (`bsp_9_3`, `bsp_10_*`, `bsp_11_0`, `bsp_11_9`) have been removed from the repository.
 
 ### What is intentionally **not** different
 
@@ -88,7 +91,7 @@ From this directory:
 pio run -e L432-NewBreakouts-Bootloader
 ```
 
-Pick the `[env:...]` that matches your MCU (L432 vs L412), breakout type (legacy vs new), and whether the image must sit **after** the MAIANA bootloader (`*Bootloader*` environments and `VECT_TAB_OFFSET`). Ensure that environment’s block is **uncommented** in `platformio.ini` (only one active `[env:]` should be uncommented at a time unless you know your PlatformIO workflow supports multiple defaults).
+Pick the `[env:...]` that matches your STM32L432 configuration (breakout type: legacy vs new, and whether the image must sit **after** the MAIANA bootloader via `*Bootloader*` environments and `VECT_TAB_OFFSET`). Note that STM32L412 is unsupported in this version. Ensure that environment’s block is **uncommented** in `platformio.ini` (only one active `[env:]` should be uncommented at a time unless you know your PlatformIO workflow supports multiple defaults).
 
 ---
 
