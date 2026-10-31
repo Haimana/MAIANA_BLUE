@@ -137,7 +137,7 @@ uint8_t bsp_tx_spi_byte(uint8_t b);
 extern const char *BSP_HW_REV;
 
 // BSP header
-#include <bsp_11_3.hpp>
+#include <bsp_11_10.hpp>
 
 /**
  * GNSS link capability.
