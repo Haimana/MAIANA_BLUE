@@ -13,6 +13,7 @@
 #include <string.h>
 
 volatile uint8_t gUart1RxMute = 0;
+volatile uint8_t gUart1RxLost = 0;
 #if NMEA_DIAG
 volatile uint32_t gUart1RxDiscard = 0;
 #endif

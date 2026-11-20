@@ -135,6 +135,24 @@ bool RFIC::sendCmdNoWait(uint8_t cmd, void* params, uint8_t paramLen)
 }
 
 
+/**
+ * Bounded CTS check (READ_CMD_BUFF), for recovery paths that must not hang
+ * on an unresponsive chip. Returns true once CTS is seen; clears a pending
+ * CTS from sendCmdNoWait() in that case.
+ */
+bool RFIC::pollCTS(uint32_t maxPolls)
+{
+  for ( uint32_t i = 0; i < maxPolls; ++i )
+    {
+      if ( readSPIResponse(NULL, 0) )
+        {
+          mCTSPending = false;
+          return true;
+        }
+    }
+  return false;
+}
+
 // This is borrowed from the dAISy project. Thank you Adrian :)
 bool RFIC::readSPIResponse(void *data, uint8_t length)
 {

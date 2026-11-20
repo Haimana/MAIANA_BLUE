@@ -45,6 +45,9 @@ public:
   bool initialized();
 
   void sendTestPacketNow(TXPacket *p);
+  void sendTestPacketNow(TXPacket *p, uint32_t wdtMs, bool simulateUnresponsive);
+  bool isTXBusy();
+  void onTXWatchdog();      // TIM7 interrupt context
 
   void processEvent(const Event &e);
   void transmitCW(VHFChannel channel);
@@ -76,6 +79,13 @@ private:
   time_t mStartTime = 0;
   bool mPALevelPending;
   uint8_t mPendingPALevel;
+
+  // TX watchdog bookkeeping (written in the TIM7 interrupt, read in poll())
+  volatile uint32_t mTXWdtCount = 0;
+  volatile uint32_t mTXWdtReported = 0;
+  volatile bool     mTXWdtShutdown = false;
+  uint32_t          mRebootAt = 0;
+  void serviceTXWatchdog();
 
   CircularQueue<TXPacket*>  mTXQueue;
 };

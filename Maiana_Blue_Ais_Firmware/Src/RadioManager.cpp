@@ -24,6 +24,10 @@
 #include "RadioState.hpp"
 #include "bsp.hpp"
 #include "TXErrors.h"
+#include "CircularQueue.hpp"
+#include "EventQueue.hpp"
+#include "Utils.hpp"
+#include <stdio.h>
 
 void rxClockCB();
 void trxClockCB();
@@ -103,8 +107,20 @@ void RadioManager::transmitCW(VHFChannel channel)
 
 void RadioManager::stopTX()
 {
-  if ( mTransceiverIC )
-    mTransceiverIC->startReceiving(CH_87, true);
+  if ( !mTransceiverIC )
+    return;
+
+  // Bit-clock interrupts use the radio SPI too; keep them out while we talk to U1.
+  PrimaskGuard lock;
+  if ( gRadioState == RADIO_TRANSMITTING )
+    {
+      if ( !mTransceiverIC->abortTransmission() )
+        mTXWdtShutdown = true;      // U1 did not answer: recover by reboot (poll())
+    }
+  else
+    {
+      mTransceiverIC->startReceiving(CH_87, true);
+    }
 }
 
 void RadioManager::start()
@@ -135,10 +151,13 @@ void RadioManager::reportError(int chipId)
   EventQueue::instance().push(e);
 }
 
+void txWdtCB();
+
 void RadioManager::configureInterrupts()
 {
   bsp_set_trx_clk_callback(trxClockCB);
   bsp_set_rx_clk_callback(rxClockCB);
+  bsp_set_tx_wdt_callback(txWdtCB);
 }
 
 uint8_t RadioManager::defaultPALevel()
@@ -149,6 +168,13 @@ uint8_t RadioManager::defaultPALevel()
   pa_params pwr;
   Transceiver::paDefaults(0, pwr);
   return pwr.pa_level;
+}
+
+bool RadioManager::isTXBusy()
+{
+  if ( gRadioState == RADIO_TRANSMITTING )
+    return true;
+  return mTransceiverIC && mTransceiverIC->assignedTXPacket();
 }
 
 bool RadioManager::paApplyBlocked() const
@@ -172,7 +198,51 @@ void RadioManager::applyPendingPALevel()
 
 void RadioManager::poll()
 {
+  serviceTXWatchdog();
   applyPendingPALevel();
+}
+
+void txWdtCB()
+{
+  RadioManager::instance().onTXWatchdog();
+}
+
+void RadioManager::onTXWatchdog()
+{
+  if ( !mTransceiverIC )
+    return;
+  if ( !mTransceiverIC->abortTransmission() )
+    mTXWdtShutdown = true;
+  mTXWdtCount = mTXWdtCount + 1;
+}
+
+/**
+ * Main context: report TX watchdog events and, if U1 had to be shut down,
+ * reboot shortly after so the message gets out first.
+ */
+void RadioManager::serviceTXWatchdog()
+{
+  const uint32_t count = mTXWdtCount;
+  if ( count != mTXWdtReported )
+    {
+      mTXWdtReported = count;
+      Event *e = EventPool::instance().newEvent(PROPR_NMEA_SENTENCE);
+      if ( e )
+        {
+          snprintf(e->nmeaBuffer.sentence, sizeof e->nmeaBuffer.sentence, "$PAIERR,TXWDT,%lu,%u*",
+              (unsigned long)count, mTXWdtShutdown ? 1u : 0u);
+          Utils::completeNMEA(e->nmeaBuffer.sentence);
+          EventQueue::instance().push(e);
+        }
+    }
+
+  if ( mTXWdtShutdown )
+    {
+      if ( mRebootAt == 0 )
+        mRebootAt = HAL_GetTick() + 500u;
+      else if ( (int32_t)(HAL_GetTick() - mRebootAt) >= 0 )
+        bsp_reboot();
+    }
 }
 
 bool RadioManager::applyPALevel(uint8_t level)
@@ -294,8 +364,14 @@ void RadioManager::scheduleTransmission(TXPacket *packet)
 
 void RadioManager::sendTestPacketNow(TXPacket *packet)
 {
+  sendTestPacketNow(packet, 0, false);
+}
+
+void RadioManager::sendTestPacketNow(TXPacket *packet, uint32_t wdtMs, bool simulateUnresponsive)
+{
   if ( mTransceiverIC )
     {
+      mTransceiverIC->setTXWatchdogTest(wdtMs, simulateUnresponsive);
       mTransceiverIC->assignTXPacket(packet);
     }
 }

@@ -39,6 +39,8 @@ Transceiver::Transceiver(GPIO_TypeDef *sdnPort, uint32_t sdnPin, GPIO_TypeDef *c
 : Receiver(sdnPort, sdnPin, csPort, csPin, dataPort, dataPin, clockPort, clockPin, chipId)
 {
   mTXPacket = NULL;
+  mTXWdtTestMs = 0;
+  mTXWdtTestHard = false;
   EventQueue::instance().addObserver(this, CLOCK_EVENT);
   mUTC = 0;
   mLastTXTime = 0;
@@ -48,6 +50,22 @@ Transceiver::Transceiver(GPIO_TypeDef *sdnPort, uint32_t sdnPin, GPIO_TypeDef *c
 void Transceiver::configure()
 {
   Receiver::configure();
+
+#if SI446X_ERRATA_2_12_RAMPDOWN_FIX
+  /*
+   * Si446x rev C2A errata 2.12 (digital PA ramp-down is an abrupt edge).
+   * Silicon Labs workaround after POWER_UP: SPI write F1 47 4B 00, wait for
+   * CTS, then SLEEP -> READY. Properties are kept in SLEEP.
+   */
+  {
+    uint8_t patch[3] = { 0x47, 0x4B, 0x00 };
+    sendCmd(0xF1, patch, sizeof patch, NULL, 0);
+    uint8_t state = 0x01;     // SLEEP
+    sendCmd(CHANGE_STATE, &state, 1, NULL, 0);
+    state = 0x03;             // READY
+    sendCmd(CHANGE_STATE, &state, 1, NULL, 0);
+  }
+#endif
 
   // Anything transmitter specific goes here
   SET_PROPERTY_PARAMS p;
@@ -59,14 +77,11 @@ void Transceiver::configure()
   sendCmd(SET_PROPERTY, &p, 4, NULL, 0);
 
   /**
-   * We need maximum digital ramp control to reduce spurs. It's only about 200us, which
-   * is less than the ramp-up bits in the TX packet, but it sure helped!
+   * Digital PA ramp-up (PA_DIG_PWR_SEQ_CONFIG, 0x2206) is written by setTXPower()
+   * together with the level, so the ramp lasts ~PA_RAMP_TARGET_US for any level.
+   * (Previously a fixed 0xFF: step 2, 12.7 us/step -> ~254 us at level 40 but
+   * ~813 us at level 127.)
    */
-  p.Group = 0x22;
-  p.NumProperties = 1;
-  p.StartProperty = 0x06;
-  p.Data[0] = 0xff;
-  sendCmd(SET_PROPERTY, &p, 6, NULL, 0);
 
   /*
    * AIS uses a slightly different Gaussian shape than default GMSK in the Si4463.
@@ -173,6 +188,24 @@ void Transceiver::transmitCW(VHFChannel channel)
   sendCmd (START_TX, &options, sizeof options, NULL, 0);
 }
 
+/**
+ * PA_DIG_PWR_SEQ_CONFIG (0x2206): bit 7 INC_STEP_SIZE (0 = 1 DDAC step,
+ * 1 = 2 steps), bits 6:0 DIG_PWR_SEQ_DELAY in 0.1 us (3..127). With
+ * PA_MODE.DIG_PWR_SEQ set, the PA steps from 0 up to PA_PWR_LVL, so the
+ * ramp-up lasts level x delay x 0.1 us. Single steps, delay per level.
+ */
+uint8_t Transceiver::digPwrSeqConfig(uint8_t level)
+{
+  uint32_t delay = 127u;
+  if ( level )
+    delay = (PA_RAMP_TARGET_US * 10u + level / 2u) / level;
+  if ( delay < 3u )
+    delay = 3u;
+  if ( delay > 127u )
+    delay = 127u;
+  return (uint8_t)delay;      // INC_STEP_SIZE = 0
+}
+
 void Transceiver::setTXPower(const pa_params &pwr)
 {
   SET_PROPERTY_PARAMS p;
@@ -183,6 +216,12 @@ void Transceiver::setTXPower(const pa_params &pwr)
   p.Data[1] = pwr.pa_level;
   p.Data[2] = pwr.pa_bias_clkduty;
   sendCmd(SET_PROPERTY, &p, 6, NULL, 0);
+
+  p.Group = 0x22;
+  p.NumProperties = 1;
+  p.StartProperty = 0x06;     // PA_DIG_PWR_SEQ_CONFIG
+  p.Data[0] = digPwrSeqConfig(pwr.pa_level);
+  sendCmd(SET_PROPERTY, &p, 4, NULL, 0);
 }
 
 
@@ -195,9 +234,9 @@ void Transceiver::configureGPIOsForTX()
   gpiocfg.GPIO1 = 0x04;       // RX/TX bit data
   gpiocfg.GPIO2 = 0x1F;       // RX/TX bit clock
 #if BOARD_REV < 105
-  gpiocfg.GPIO3 = 0x21;       // RX_STATE; low during TX and high during RX
+  gpiocfg.GPIO3 = 0x21;       // RX_STATE: high in RX, low otherwise (T/R switch, LNA)
 #else
-  gpiocfg.GPIO3 = 0x20;       // RX_STATE; high during TX and low during RX
+  gpiocfg.GPIO3 = 0x20;       // TX_STATE: high in TX, low otherwise (Q7 LNA supply / U8 CTRL)
 #endif
   gpiocfg.NIRQ  = 0x00;       // No change
   gpiocfg.SDO   = 0x00;       // No change
@@ -330,6 +369,9 @@ void Transceiver::onBitClock()
     {
       if ( mTXPacket->eof() )
         {
+          bsp_tx_wdt_disarm();
+          mTXWdtTestMs = 0;
+          mTXWdtTestHard = false;
           mLastTXTime = mUTC;
           startReceiving(mChannel, true);
           gRadioState = RADIO_RECEIVING;
@@ -381,6 +423,8 @@ void Transceiver::startTransmitting()
   // Set TX power level
   // Start transmitting
   gRadioState = RADIO_TRANSMITTING;
+  // Armed before the PA bias goes on; disarmed at end of packet or abort
+  bsp_tx_wdt_arm(txWatchdogMs());
   configureGPIOsForTX();
 
   //ASSERT(false);
@@ -400,6 +444,60 @@ void Transceiver::startTransmitting()
 
 }
 
+/**
+ * Watchdog time for the packet about to be sent: its air time at 9600 bps
+ * plus TX_WDT_MARGIN_MS. Normal packets are capped at TX_WDT_MAX_SLOTS slots.
+ */
+uint32_t Transceiver::txWatchdogMs() const
+{
+#if TX_WDT_TEST_CMD
+  if ( mTXWdtTestMs )
+    return mTXWdtTestMs;
+#endif
+  uint32_t bits = mTXPacket ? mTXPacket->size() : 0u;
+  if ( mTXPacket && !mTXPacket->isTestPacket() && bits > TX_WDT_MAX_SLOTS * 256u )
+    bits = TX_WDT_MAX_SLOTS * 256u;
+  return (bits * 1000u + 9599u) / 9600u + TX_WDT_MARGIN_MS;
+}
+
+void Transceiver::setTXWatchdogTest(uint32_t ms, bool simulateUnresponsive)
+{
+  PrimaskGuard lock;
+  mTXWdtTestMs = ms;
+  mTXWdtTestHard = simulateUnresponsive;
+}
+
+/**
+ * Stop a transmission now. Called from the TX watchdog interrupt (same NVIC
+ * priority as the bit clocks) or from main context with interrupts masked.
+ * PA bias goes off first. If U1 answers CTS within a bounded poll it is put
+ * back into RX on the current channel; otherwise it is shut down (SDN high)
+ * and the caller must reboot to recover it.
+ * Returns true if U1 is back in RX.
+ */
+bool Transceiver::abortTransmission()
+{
+  bsp_tx_wdt_disarm();
+  HAL_GPIO_WritePin(PA_BIAS_PORT, PA_BIAS_PIN, GPIO_PIN_RESET);
+
+  bool responsive = !mTXWdtTestHard && pollCTS(TX_ABORT_CTS_POLLS);
+  if ( responsive )
+    startReceiving(mChannel, true);
+  else
+    HAL_GPIO_WritePin(mSDNP, mSDNPin, GPIO_PIN_SET);
+
+  if ( mTXPacket )
+    {
+      TXPacketPool::instance().deleteTXPacket(mTXPacket);
+      mTXPacket = NULL;
+    }
+  mTXWdtTestMs = 0;
+  mTXWdtTestHard = false;
+  gRadioState = RADIO_RECEIVING;
+  __DSB();
+  return responsive;
+}
+
 void Transceiver::startReceiving(VHFChannel channel, bool reconfigGPIOs)
 {
   Receiver::startReceiving(channel, reconfigGPIOs);
@@ -414,9 +512,9 @@ void Transceiver::configureGPIOsForRX()
   gpiocfg.GPIO1 = 0x14;       // RX data bits
   gpiocfg.GPIO2 = 0x1F;       // RX/TX data clock
 #if BOARD_REV < 105
-  gpiocfg.GPIO3 = 0x21;       // RX_STATE; high during TX and low during RX
+  gpiocfg.GPIO3 = 0x21;       // RX_STATE: high in RX, low otherwise (T/R switch, LNA)
 #else
-  gpiocfg.GPIO3 = 0x20;       // RX_STATE; high during TX and low during RX
+  gpiocfg.GPIO3 = 0x20;       // TX_STATE: high in TX, low otherwise (Q7 LNA supply / U8 CTRL)
 #endif
   gpiocfg.NIRQ  = 0x00;       // No change
   gpiocfg.SDO   = 0x00;       // No change

@@ -14,6 +14,9 @@
 extern "C" {
 #endif
 extern volatile uint8_t gUart1RxMute;
+// Set by the USART1 ISR when a received byte was discarded (mute window);
+// the CLI line assembler then drops its partial line.
+extern volatile uint8_t gUart1RxLost;
 #if NMEA_DIAG
 extern volatile uint32_t gUart1RxDiscard;
 #endif

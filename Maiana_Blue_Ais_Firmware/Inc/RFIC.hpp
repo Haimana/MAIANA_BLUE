@@ -61,6 +61,7 @@ protected:
   virtual void configure();
   bool sendCmd(uint8_t cmd, void* params, uint8_t paramLen, void* result, uint8_t resultLen);
   bool sendCmdNoWait(uint8_t cmd, void* params, uint8_t paramLen);
+  bool pollCTS(uint32_t maxPolls);
   bool isInitialized();
   bool powerOnReset();
   bool isReceiving();

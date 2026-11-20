@@ -4,7 +4,7 @@ This directory is the **PlatformIO** build (VS Code + PlatformIO, `platformio.in
 
 Upstream concept and license remain those of the **MAIANA** project (GPL v3, Peter Antypas).
 
-- **Firmware version:** `FW_REV` **4.6.0** (`Inc/config.h`), reported in `$PAISYS`.
+- **Firmware version:** `FW_REV` **4.6.1** (`Inc/config.h`), reported in `$PAISYS`.
 - **MCU:** STM32L432KB (bootloader layout, application at `0x08004800`).
 - **Radios:** 2 × Si4463 (U1 = transceiver on channel A, U2 = receiver on channel B), sharing `SPI1`.
 - **GNSS:** Quectel LC76G on `USART2`.
@@ -55,8 +55,8 @@ The raw image is produced under **`.pio/build/L432-NewBreakouts-Bootloader/firmw
 
 After each successful `pio run`, **`scripts/pio_post_copy_firmware.py`** copies `firmware.bin` into **`Binaries/`** as:
 
-- `maiana_l432kb_hw12_1_fw4_6_0_boot0x4800.bin` — application only (starts at `0x08004800`);
-- `maiana_l432kb_hw12_1_fw4_6_0_boot0x4800_combined.bin` — **bootloader + metadata + application** in one image starting at `0x08000000`: `bootloader/maiana-bootloader-l432.bin`, `0xFF` padding, a 16-byte metadata record at `0x4000` (magic `0xABADBABE`, application size, CRC32, flags) and the application at `0x4800`.
+- `maiana_l432kb_hw12_1_fw4_6_1_boot0x4800.bin` — application only (starts at `0x08004800`);
+- `maiana_l432kb_hw12_1_fw4_6_1_boot0x4800_combined.bin` — **bootloader + metadata + application** in one image starting at `0x08000000`: `bootloader/maiana-bootloader-l432.bin`, `0xFF` padding, a 16-byte metadata record at `0x4000` (magic `0xABADBABE`, application size, CRC32, flags) and the application at `0x4800`.
 
 Name tokens: **MCU** (`board_build.mcu`), **hardware revision** from the `-DBOARD_REV=` build flag (`121` → `hw12_1`; `hwUnknown` plus a warning if the flag is missing), **`FW_REV`** from `Inc/config.h` (dots → underscores), and **layout** (`VECT_TAB_OFFSET` → `boot0x4800`, otherwise `fullflash`). `Inc/bsp/bsp.hpp` uses the same `BOARD_REV` (default `121`).
 
@@ -74,7 +74,7 @@ PIO_SKIP_COMBINED=1     pio run -e L432-NewBreakouts-Bootloader   # skip only th
 - **Full image over SWD:** program `..._combined.bin` at `0x08000000` (it already contains the bootloader and the metadata record at `0x4000`).
 - **`dfu` command:** the application sets `DFU_FLAG_MAGIC` and reboots; early in `main()` it then jumps to the STM32 **ROM bootloader** (system memory, `0x1FFF0000`).
   - `Python/stm32-bootloader-py3.py <port> <image>` talks to the ROM bootloader and writes from `FLASH_BASE` = `0x08000000`, so use it with the **combined** image (details in `Python/README.md`; disconnect your serial terminal first).
-- **`Python/fwupdate-py3.py <port> <imagefile>`** talks to the **MAIANA bootloader** (waits for the `MAIANA bootloader` banner, then `load <size> <crc32>` → `READY`) and sends the **application** image (`maiana_l432kb_hw12_1_fw4_6_0_boot0x4800.bin`).
+- **`Python/fwupdate-py3.py <port> <imagefile>`** talks to the **MAIANA bootloader** (waits for the `MAIANA bootloader` banner, then `load <size> <crc32>` → `READY`) and sends the **application** image (`maiana_l432kb_hw12_1_fw4_6_1_boot0x4800.bin`).
 
 ---
 
@@ -102,33 +102,42 @@ Behaviour (`Src/bsp/bsp_12_1.cpp`):
 
 ## Serial CLI (USART1)
 
-Commands are matched by prefix (`help` prints the list). Replies are NMEA-style `$PAI...*hh` sentences unless shown otherwise.
+Commands are case-sensitive, one per line (CR ignored, LF ends the line). `help` prints the list. Replies are NMEA-style `$PAI...*hh` sentences unless shown otherwise.
+
+Line and matching rules (4.6.1):
+
+- Commands that transmit, reset or write configuration must be the **whole line** (surrounding blanks are ignored): `dfu`, `reboot`, `cli`, `factory reset`, `erase station`, `hourlyreboot on|off`, `gps on|off`, `heading off`, `tx on|off`, `tx test`, `stoptx`, `msg24`. Anything else (e.g. `reboot now`, or an echoed `help` line) is ignored.
+- Commands with arguments (`station`, `xotrim`, `pa_level`, `heading`, `otp`) must start the line and their arguments are validated; invalid input is rejected and nothing is written.
+- Up to 4 junk bytes in front of a **read-only/idempotent** command (`help`, the `…?` queries, `heading <deg>`, `heading off`) are skipped (TX interference on the RX line). Other commands are never searched for inside a line.
+- `$` or `!` anywhere in a line restarts it (NMEA resync), so a cut heading sentence followed by a full one is still accepted. Exception: inside a `station ` line, where name and callsign may contain `$` and `!` (AIS 6-bit charset).
+- Lines starting with `!` (e.g. our own `!AIVDM` echoed back by a multiplexer) are ignored; lines starting with `$` are only parsed as heading input (`$--HDT`, `$--HDG`, `$PAIHDG`, checksum required).
+- A line that was partly lost because USART1 RX is muted around our own transmission is dropped instead of being merged with the next line.
 
 | Command | Action | Reply |
 |---|---|---|
 | `help` | List commands | text |
-| `station <mmsi>,<name>,<callsign>,<type>,<len>,<beam>,<portoffset>,<bowoffset>` | Save station data (types 30, 34, 36, 37 accepted) | `$PAISTN,...` |
+| `station <mmsi>,<name>,<callsign>,<type>,<len>,<beam>,<portoffset>,<bowoffset>` | Save station data. Exactly 8 fields; MMSI exactly 9 digits; type/len/beam/offsets digits only, 0–255 (types other than 30, 34, 36, 37 are stored as 0) | `$PAISTN,...` or `ERROR: invalid station data (...)` |
 | `station?` | Report station data | `$PAISTN,<mmsi>,<name>,<callsign>,<type>,<len>,<beam>,<port>,<bow>` |
 | `erase station` | Erase station data | `$PAISTN` (zeroed fields) |
 | `factory reset` | Erase station data and config flags (XO trim and TX config are kept) | `$PAISTN`, `$PAIHRB` |
 | `sys?` | System data | `$PAISYS,<hwrev>,<fwrev>,<serial>,<mcu>,<breakout>,<bootloader 0/1>` |
 | `hourlyreboot on` / `off` / `?` | Hourly self-reboot setting | `$PAIHRB,<0/1>,<uptime s>` |
 | `tx on` / `tx off` / `tx?` | Soft TX switch | `$PAITXCFG,<hardwired>,<hw switch on>,<soft on>,<station set>,<TX allowed>` |
-| `tx test` | Send a 1-second test packet (9600 random bits) on a random channel — use a dummy load | `$PAITX,<A/B>,...` when done |
+| `tx test` | Send a 1-second test packet (9600 random bits) on a random channel — use a dummy load. Refused while a TX is pending/running; at most one per 10 s (`TX_TEST_MIN_INTERVAL_MS`) | `OK, test packet on channel A/B`, then `$PAITX,<A/B>,...` when done; or `ERROR: TX busy, test packet not sent` / `ERROR: tx test rate limited, retry in N s` |
 | `stoptx` | Return the transceiver to receive | — |
 | `msg24` | Queue message 24 | `$PAISCHTX,...` |
 | `gps on` / `gps off` | Power-cycle / switch off the GNSS | — |
 | `gnss?` | GNSS link | `$PAIGNSS,<baud>,<link state>,<hint baud>,<probe switches>,<rx errors>,<has TX 0/1>` |
 | `heading <0-360>` / `heading off` / `heading?` | True heading for message 18 | `$PAIHDG,<deg>,...` or `$PAIHDG,,511` |
-| `xotrim <n>` | Apply and save XO trim | `$PAIXOTR,<n>` (preceded by `ERROR: EEPROM write failed` on failure) |
+| `xotrim <0-255>` | Apply and save XO trim (digits only) | `$PAIXOTR,<n>` (preceded by `ERROR: EEPROM write failed` on failure) or `ERROR: invalid xotrim (0-255)` |
 | `xotrim?` | Report XO trim | `$PAIXOTR,<n>` |
 | `pa_level <0-127>` | Save and apply Si4463 `PA_PWR_LVL` | `OK, saved and applied.` / `OK, saved, applying after current TX.` / `ERROR: EEPROM write failed` / `Invalid level (0-127)` |
 | `pa_level?` | Report PA level | `$PAITXC,<level>,<stored 0/1>` |
-| `otp?` / `otp <hwrev> [serial]` | One-time-programmable data | `$PAIOTP,<serial>,<hwrev>,<BSP_HW_REV>` |
+| `otp?` / `otp <hwrev> [serial]` | One-time-programmable data | `$PAIOTP,<serial>,<hwrev>,<BSP_HW_REV>` or `ERROR: invalid otp (...)` |
 | `reboot` / `cli` / `dfu` | Reboot / reboot into CLI mode / bootloader | — |
 | `nmea?` | NMEA path diagnostics (only with `NMEA_DIAG=1`) | `$PAINMEA,...` |
 
-Unsolicited sentences: `$PAIEEP` (boot), `$PAITXCFG` (boot), `$PAITX,<A/B>,<msg>` after each transmission, `$PAISCHTX,<msg>,<code>` (scheduling: 0 = OK, 1 = alloc error, 2 = queue full, 3 = packet too old), `$PAINF,<A/B>,0x..` (noise floor), `$PAIERR,RFIC,<id>` (radio init error).
+Unsolicited sentences: `$PAIEEP` (boot), `$PAITXCFG` (boot), `$PAITX,<A/B>,<msg>` after each transmission, `$PAISCHTX,<msg>,<code>` (scheduling: 0 = OK, 1 = alloc error, 2 = queue full, 3 = packet too old), `$PAINF,<A/B>,0x..` (noise floor), `$PAIERR,RFIC,<id>` (radio init error), `$PAIERR,TXWDT,<count>,<0|1>` (TX watchdog fired: 0 = transmitter recovered to RX, 1 = transmitter shut down, board reboots ~0.5 s later).
 
 ### PA level details
 
@@ -139,7 +148,21 @@ Unsolicited sentences: `$PAIEEP` (boot), `$PAITXCFG` (boot), `$PAITX,<A/B>,<msg>
 
 ---
 
-## Notable changes in 4.6.0 (this tree)
+## Changes in 4.6.1
+
+- **TX watchdog** (TIM7 one-shot, same IRQ priority as the radio bit clocks): armed at START_TX for the packet's air time + 10 ms (normal packets capped at 5 slots; `tx test` uses its own 1 s length). On expiry PA bias (PA8) goes low, the transmitter is returned to RX if it still answers CTS, otherwise shut down (SDN1 high) and the board reboots; `$PAIERR,TXWDT,<count>,<0|1>` is reported.
+- **RF safe shutdown** before `reboot` and `dfu`: radio/SOTDMA interrupts off, PA8 low, SDN1 high, so the PA is never left biased across a reset.
+- **Constant PA ramp-up (~250 us)**: `PA_DIG_PWR_SEQ_CONFIG` (0x2206) is computed per PA level (single steps, step delay ≈ 250 us / level, limited to 0.3–12.7 us) instead of a fixed 0xFF (which gave ~813 us at level 127). Below level ~20 the ramp is shorter (minimum step delay).
+- **`tx test`**: refused while a TX is pending/running, rate-limited to one per 10 s, now replies `OK, test packet on channel A/B`.
+- **Exact matching for TX commands**: `tx test`, `tx on`, `tx off`, `stoptx` and `msg24` must be the whole line; `tx test <anything else>` replies `ERROR: unknown tx test option`, `tx on…`/`tx off…` with extra text reply `ERROR: unknown tx option` (previously any line starting with `tx test` fired a test packet).
+- **Robust CLI input** (see *Line and matching rules*): `dfu`, `reboot`, `cli`, `factory reset`, `erase station`, `hourlyreboot on|off`, `gps on|off`, `heading off` are now exact-match too; the junk-skip (added in 4.5.6 against TX interference) only skips ≤4 bytes and only toward read-only commands and `heading`; `$`/`!` resync the line (except inside `station `); `!` lines (echoed `!AIVDM`) are ignored; lines cut by the TX RX-mute window are dropped instead of merged; strict `xotrim` (0–255) and `station` (8 fields, 9-digit MMSI, numeric fields) validation; `otp` checks its arguments. Before this, an echoed `!AIVDM` payload or `help` text could trigger `reboot`/`dfu`/`cli`. The Python tools send exactly `dfu` and are unaffected.
+- **Safer `stopTX()`**: runs with interrupts masked and properly aborts an in-progress transmission.
+- **Si446x errata 2.12 ramp-down workaround** behind `SI446X_ERRATA_2_12_RAMPDOWN_FIX` in `Inc/config.h` (default **0 / off**).
+- GPIO3 comments corrected (0x20 = TX_STATE, 0x21 = RX_STATE); no behaviour change.
+- Bench-only commands `tx test wdt` / `tx test wdt hard` (force the watchdog after 100 ms, optionally simulating an unresponsive transmitter) exist only when built with `TX_WDT_TEST_CMD=1` (`Inc/config.h`, default **0**; not in release bins).
+- Not changed: no MCU-temperature TX inhibit (no ADC driver in tree), no PWM bias ramp.
+
+## Notable changes in 4.6.0
 
 - **BSP 12.1**: M95040 SPI EEPROM driver (replaces I2C), power-loss safe records, `$PAIEEP` boot report, I2C HAL module disabled.
 - **EEPROM write results are reported**: all write/erase paths return success and the CLI prints `ERROR: EEPROM write failed` instead of failing silently.

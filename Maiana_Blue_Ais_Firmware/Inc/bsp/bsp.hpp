@@ -144,6 +144,17 @@ void bsp_stop_sotdma_timer();
 uint32_t bsp_get_sotdma_timer_value();
 void bsp_set_sotdma_timer_value(uint32_t v);
 
+// TX watchdog: one-shot hardware timer, interrupt at the same NVIC priority
+// as the radio bit clocks (they never preempt each other). Arm / disarm from
+// that priority or with interrupts masked.
+void bsp_set_tx_wdt_callback(irq_callback cb);
+void bsp_tx_wdt_arm(uint32_t ms);
+void bsp_tx_wdt_disarm();
+
+// Cut the RF power path: PA bias off, transceiver IC (U1) in shutdown, radio
+// interrupts disabled. Used before any reset (reboot, DFU, TX watchdog).
+void bsp_rf_safe_shutdown();
+
 // Encapsulates the SPI bus
 uint8_t bsp_tx_spi_byte(uint8_t b);
 

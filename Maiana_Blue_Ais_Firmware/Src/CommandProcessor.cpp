@@ -38,6 +38,7 @@
 #include "RadioState.hpp"
 #include "TXPacket.hpp"
 #include "Configuration.hpp"
+#include "CliParse.hpp"
 #include "AISChannels.h"
 #include <stm32l4xx_hal.h>
 #include <stdio.h>
@@ -70,8 +71,41 @@ void CommandProcessor::processEvent(const Event &e)
   }
 }
 
-void fireTestPacket()
+/**
+ * `tx test` sends 1 s of modulated carrier through Q1. Refuse it while a TX is
+ * pending or running, and allow at most one per TX_TEST_MIN_INTERVAL_MS.
+ */
+static bool testPacketAllowed()
 {
+  static bool fired = false;
+  static uint32_t lastMs = 0;
+
+  if ( RadioManager::instance().isTXBusy() )
+    {
+      DataTerminal::instance().write("ERROR: TX busy, test packet not sent\r\n");
+      return false;
+    }
+
+  const uint32_t now = HAL_GetTick();
+  if ( fired && now - lastMs < TX_TEST_MIN_INTERVAL_MS )
+    {
+      char line[64];
+      snprintf(line, sizeof line, "ERROR: tx test rate limited, retry in %lu s\r\n",
+          (unsigned long)((TX_TEST_MIN_INTERVAL_MS - (now - lastMs) + 999u) / 1000u));
+      DataTerminal::instance().write(line);
+      return false;
+    }
+
+  fired = true;
+  lastMs = now;
+  return true;
+}
+
+void fireTestPacket(uint32_t wdtMs = 0, bool simulateUnresponsive = false)
+{
+  if ( !testPacketAllowed() )
+    return;
+
   VHFChannel channel = CH_87;
 
   if ( rand() % 2 == 0 )
@@ -79,6 +113,7 @@ void fireTestPacket()
 
   TXPacket *p = TXPacketPool::instance().newTXPacket(channel);
   if ( !p ) {
+      DataTerminal::instance().write("ERROR: no TX packet available\r\n");
       return;
   }
 
@@ -90,57 +125,19 @@ void fireTestPacket()
    */
   p->configureForTesting(channel, 9600);
 
-  RadioManager::instance().sendTestPacketNow(p);
+  RadioManager::instance().sendTestPacketNow(p, wdtMs, simulateUnresponsive);
+  DataTerminal::instance().write(channel == CH_87 ? "OK, test packet on channel A\r\n"
+                                                  : "OK, test packet on channel B\r\n");
 }
 
-static void skipToKnownCommand(string &s)
+/**
+ * Commands that transmit, reset, or write configuration must match the whole
+ * (trimmed) line; a prefix match would turn e.g. "tx test xyz", "reboot now"
+ * or an echoed help line ("reboot   - Reboot the device") into a real action.
+ */
+static bool isExactly(const string &s, const char *cmd)
 {
-  static const char *const cmds[] = {
-      "help",
-      "station ",
-      "station?",
-      "sys?",
-#if NMEA_DIAG
-      "nmea?",
-#endif
-      "hourlyreboot on",
-      "hourlyreboot off",
-      "hourlyreboot?",
-      "dfu",
-      "erase station",
-      "factory reset",
-      "tx test",
-      "tx on",
-      "tx off",
-      "tx?",
-      "stoptx",
-      "reboot",
-      "cli",
-      "gps off",
-      "gps on",
-      "gnss?",
-      "heading off",
-      "heading?",
-      "heading ",
-      "msg24",
-      "otp?",
-      "otp ",
-      "xotrim ",
-      "xotrim?",
-      "pa_level ",
-      "pa_level?"
-  };
-
-  size_t best = string::npos;
-  for ( unsigned i = 0; i < sizeof cmds / sizeof cmds[0]; ++i )
-    {
-      size_t p = s.find(cmds[i]);
-      if ( p != string::npos && (best == string::npos || p < best) )
-        best = p;
-    }
-
-  if ( best != string::npos && best > 0 )
-    s.erase(0, best);
+  return s == cmd;
 }
 
 void CommandProcessor::processCommand(const char *buff)
@@ -148,13 +145,17 @@ void CommandProcessor::processCommand(const char *buff)
   string s(buff);
   Utils::trim(s);
 
+  // '!' lines (e.g. our own !AIVDM/!AIVDO echoed back by a multiplexer) are never commands
+  if ( !s.empty() && s[0] == '!' )
+    return;
+
   if ( !s.empty() && s[0] == '$' )
     {
       VesselHeading::instance().acceptSentence(s.c_str());
       return;
     }
 
-  skipToKnownCommand(s);
+  cli::skipToSafeCommand(s);
 
   if ( s.find("help") == 0 )
     {
@@ -177,7 +178,10 @@ void CommandProcessor::processCommand(const char *buff)
       DataTerminal::instance().write("  tx on                               - Enable AIS transmission\r\n");
       DataTerminal::instance().write("  tx off                              - Disable AIS transmission (silent mode)\r\n");
       DataTerminal::instance().write("  tx?                                 - Report current TX status\r\n");
-      DataTerminal::instance().write("  tx test                             - Send a test packet\r\n");
+      DataTerminal::instance().write("  tx test                             - Send a 1 s test packet (max one per 10 s)\r\n");
+#if TX_WDT_TEST_CMD
+      DataTerminal::instance().write("  tx test wdt [hard]                  - Bench: TX watchdog cuts a test packet after 100 ms\r\n");
+#endif
       DataTerminal::instance().write("  stoptx                              - Stop any ongoing test transmission\r\n");
       DataTerminal::instance().write("  msg24                               - Queue Message 24 for transmission\r\n");
       DataTerminal::instance().write("  gps on                              - Enable GNSS receiver\r\n");
@@ -201,27 +205,24 @@ void CommandProcessor::processCommand(const char *buff)
        */
 
       StationData station;
-
-      string params = s.substr(8);
-      if (params.empty())
-        return;
-
-      vector<string> tokens;
-      Utils::tokenize(params, ',', tokens);
-      if ( tokens.size() < 8 )
-        return;
+      cli::StationFields f;
+      if ( !cli::parseStation(s.substr(8), f) )
+        {
+          DataTerminal::instance().write("ERROR: invalid station data (mmsi[9 digits],name,callsign,type,len,beam,portoffset,bowoffset)\r\n");
+          return;
+        }
 
       memset(&station, 0, sizeof station);
-      station.mmsi = Utils::toInt(tokens[0]);
-      strlcpy(station.name, tokens[1].c_str(), sizeof station.name);
-      strlcpy(station.callsign, tokens[2].c_str(), sizeof station.callsign);
-      int type = (VesselType)Utils::toInt(tokens[3]);
+      station.mmsi = f.mmsi;
+      strlcpy(station.name, f.name.c_str(), sizeof station.name);
+      strlcpy(station.callsign, f.callsign.c_str(), sizeof station.callsign);
+      int type = (int)f.type;
       if ( type == 30 || type == 34 || type == 36 || type == 37 )
         station.type = (VesselType)type;
-      station.len = Utils::toInt(tokens[4]);
-      station.beam = Utils::toInt(tokens[5]);
-      station.portOffset = Utils::toInt(tokens[6]);
-      station.bowOffset = Utils::toInt(tokens[7]);
+      station.len = (uint8_t)f.len;
+      station.beam = (uint8_t)f.beam;
+      station.portOffset = (uint8_t)f.portOffset;
+      station.bowOffset = (uint8_t)f.bowOffset;
       station.magic = STATION_DATA_MAGIC;
 
       if ( !Configuration::instance().writeStationData(station) )
@@ -236,13 +237,13 @@ void CommandProcessor::processCommand(const char *buff)
     {
       Configuration::instance().reportSystemData();
     }
-  else if ( s.find("hourlyreboot on") == 0 )
+  else if ( isExactly(s, "hourlyreboot on") )
     {
       if ( !Configuration::instance().setHourlyReboot(true) )
         DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
       Configuration::instance().reportHourlyReboot();
     }
-  else if ( s.find("hourlyreboot off") == 0 )
+  else if ( isExactly(s, "hourlyreboot off") )
     {
       if ( !Configuration::instance().setHourlyReboot(false) )
         DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
@@ -293,18 +294,18 @@ void CommandProcessor::processCommand(const char *buff)
       DataTerminal::instance().write(line);
     }
 #endif
-  else if ( s.find("dfu") == 0 )
+  else if ( isExactly(s, "dfu") )
     {
       jumpToBootloader();
     }
-  else if ( s.find("erase station") == 0 )
+  else if ( isExactly(s, "erase station") )
     {
       if ( !Configuration::instance().eraseStationData() )
         DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
       TXScheduler::instance().reloadStationData();
       Configuration::instance().reportStationData();
     }
-  else if ( s.find("factory reset") == 0 )
+  else if ( isExactly(s, "factory reset") )
     {
       if ( !Configuration::instance().factoryReset() )
         DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
@@ -312,17 +313,33 @@ void CommandProcessor::processCommand(const char *buff)
       Configuration::instance().reportStationData();
       Configuration::instance().reportHourlyReboot();
     }
-  else if ( s.find("tx test") == 0 )
+#if TX_WDT_TEST_CMD
+  else if ( isExactly(s, "tx test wdt hard") )
+    {
+      // Bench hook: watchdog fires mid-packet and U1 is treated as unresponsive
+      fireTestPacket(TX_WDT_TEST_MS, true);
+    }
+  else if ( isExactly(s, "tx test wdt") )
+    {
+      // Bench hook: watchdog fires mid-packet, normal recovery to RX
+      fireTestPacket(TX_WDT_TEST_MS, false);
+    }
+#endif
+  else if ( isExactly(s, "tx test") )
     {
       fireTestPacket();
     }
-  else if ( s.find("tx on") == 0 )
+  else if ( s.find("tx test") == 0 )
+    {
+      DataTerminal::instance().write("ERROR: unknown tx test option\r\n");
+    }
+  else if ( isExactly(s, "tx on") )
     {
       if ( !Configuration::instance().enableTX() )
         DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
       TXScheduler::instance().reportTXStatus();
     }
-  else if ( s.find("tx off") == 0 )
+  else if ( isExactly(s, "tx off") )
     {
       if ( !Configuration::instance().disableTX() )
         DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
@@ -331,6 +348,10 @@ void CommandProcessor::processCommand(const char *buff)
   else if ( s.find("tx?") == 0 )
     {
       TXScheduler::instance().reportTXStatus();
+    }
+  else if ( s.find("tx on") == 0 || s.find("tx off") == 0 )
+    {
+      DataTerminal::instance().write("ERROR: unknown tx option\r\n");
     }
   /*
   else if ( s.find("txcw a") == 0 )
@@ -342,23 +363,23 @@ void CommandProcessor::processCommand(const char *buff)
       RadioManager::instance().transmitCW(CH_88);
     }
   */
-  else if ( s.find("stoptx") == 0 )
+  else if ( isExactly(s, "stoptx") )
     {
       RadioManager::instance().stopTX();
     }
-  else if (s.find("reboot") == 0 )
+  else if ( isExactly(s, "reboot") )
     {
       bsp_reboot();
     }
-  else if ( s.find("cli") == 0 )
+  else if ( isExactly(s, "cli") )
     {
       enterCLIMode();
     }
-  else if ( s.find("gps off") == 0 )
+  else if ( isExactly(s, "gps off") )
     {
       GPS::instance().disable();
     }
-  else if ( s.find("gps on") == 0 )
+  else if ( isExactly(s, "gps on") )
     {
       // Power-cycles the module and restarts GNSS rate detection.
       GPS::instance().enable();
@@ -367,7 +388,7 @@ void CommandProcessor::processCommand(const char *buff)
     {
       GPS::instance().reportLink();
     }
-  else if ( s.find("heading off") == 0 )
+  else if ( isExactly(s, "heading off") )
     {
       VesselHeading::instance().clear();
       VesselHeading::instance().report();
@@ -392,7 +413,7 @@ void CommandProcessor::processCommand(const char *buff)
           VesselHeading::instance().report();
         }
     }
-  else if ( s.find("msg24") == 0 )
+  else if ( isExactly(s, "msg24") )
     {
       TXScheduler::instance().queueMessage24(CH_87);
     }
@@ -408,7 +429,13 @@ void CommandProcessor::processCommand(const char *buff)
 #endif
   else if ( s.find("xotrim ") == 0 )
     {
-      uint8_t value = Utils::toInt(s.substr(7));
+      uint32_t v = 0;
+      if ( !cli::parseUInt(s.substr(7), 255u, v) )
+        {
+          DataTerminal::instance().write("ERROR: invalid xotrim (0-255)\r\n");
+          return;
+        }
+      uint8_t value = (uint8_t)v;
       RadioManager::instance().setXOTrimValue(value);
       if ( !Configuration::instance().setXOTrimValue(value) )
         DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
@@ -484,6 +511,11 @@ void CommandProcessor::writeOTPData(const std::string &s)
 
   vector<string> tokens;
   Utils::tokenize(params, ' ', tokens);
+  if ( tokens.empty() || tokens[0].empty() )
+    {
+      DataTerminal::instance().write("ERROR: invalid otp (otp <hw_version> [serial])\r\n");
+      return;
+    }
 
   OTPData data;
   memset(&data, 0, sizeof data);

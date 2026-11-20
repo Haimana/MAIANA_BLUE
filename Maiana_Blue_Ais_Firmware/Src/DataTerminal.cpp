@@ -24,11 +24,11 @@
 #include "GPS.hpp"
 #include "UartQuiet.hpp"
 #include "bsp.hpp"
+#include "CliParse.hpp"
 #include <ctype.h>
 #include <stdio.h>
 
-static char __rxbuff[80];
-static uint8_t __rxpos = 0;
+static cli::LineAssembler sLine;
 #if NMEA_DIAG
 static volatile uint32_t sCommandDrop = 0;
 #endif
@@ -113,38 +113,24 @@ void DataTerminal::_write(const char *s)
 
 void termInputCB(char c)
 {
-  if ( c == '\r' )
-    {
-      return;
-    }
-
-  // TX EMI on USART1 RX often prefixes a command with junk (0xAA, 'b', …).
-  // Every CLI verb starts with a letter; drop leading non-alpha so "nmea?"
-  // is not stored as "\xAAnmea?" and then ignored by a prefix match.
-  // '$' starts an HDT/HDG/PAIHDG sentence. Other non-alpha bytes are TX EMI.
-  if ( __rxpos == 0 && c != '\n' && c != '$' && !isalpha((unsigned char)c) )
+  // Runs in the USART1 ISR, same context that sets gUart1RxLost.
+  // Line rules (leading-byte filter, '$'/'!' resync, mute-gap reset): see
+  // cli::LineAssembler in CliParse.hpp.
+  const bool lost = gUart1RxLost != 0;
+  gUart1RxLost = 0;
+  if ( !sLine.feed(c, lost) )
     return;
 
-  __rxbuff[__rxpos++] = c;
-  if ( __rxpos >= sizeof __rxbuff )
+  Event *e = EventPool::instance().newEvent(COMMAND_EVENT);
+  if ( e )
     {
-      __rxpos = 0;
+      strlcpy(e->command.buffer, sLine.buf, sizeof e->command.buffer);
+      EventQueue::instance().push(e);
     }
-  else if ( c == '\n' )
-    {
-      __rxbuff[__rxpos++] = 0;
-      Event *e = EventPool::instance().newEvent(COMMAND_EVENT);
-      if ( e )
-        {
-          strlcpy(e->command.buffer, __rxbuff, sizeof e->command.buffer);
-          EventQueue::instance().push(e);
-        }
 #if NMEA_DIAG
-      else
-        sCommandDrop++;
+  else
+    sCommandDrop++;
 #endif
-      __rxpos = 0;
-    }
 }
 
 

@@ -25,7 +25,7 @@
 #include "TXPowerSettings.h"
 
 
-#define FW_REV                        "4.6.0"
+#define FW_REV                        "4.6.1"
 
 // Message 18 true heading is dropped (511) when the last sample is older than this.
 #define HEADING_MAX_AGE_MS            10000
@@ -87,6 +87,56 @@
 // The spec calls for Class B transmitters to listen for the first 20 bits of each frame before transmitting.
 // It takes the Si4463 a few bits' time to switch from RX to TX, so I arbitrarily picked the 12th bit instead.
 #define CCA_SLOT_BIT                  11
+
+/*
+ * TX safety (board 12.1: Si4463 U1 drives LDMOS Q1, gate bias from PA8).
+ *
+ * TX watchdog: a one-shot hardware timer (TIM7) is armed at START_TX with
+ * the packet's own air time (bits / 9600 bps) plus TX_WDT_MARGIN_MS. Normal
+ * AIS packets are capped at TX_WDT_MAX_SLOTS slots (ITU-R M.1371: at most
+ * five consecutive slots); `tx test` packets (9600 bits = 1 s) use their own
+ * length. On expiry the PA bias is cut and U1 is put back into RX; if U1 does
+ * not answer CTS it is shut down (SDN1 high) and the unit reboots.
+ * Reported as $PAIERR,TXWDT,<count>,<0 = recovered | 1 = shutdown + reboot>.
+ */
+#define TX_WDT_MARGIN_MS              10
+#define TX_WDT_MAX_SLOTS               5
+
+/*
+ * Bench hook: `tx test wdt` sends a test packet with a TX_WDT_TEST_MS
+ * watchdog (shorter than its 1 s air time) to exercise the recovery path;
+ * `tx test wdt hard` also simulates an unresponsive U1 (shutdown + reboot).
+ * Set to 0 for release builds.
+ */
+#ifndef TX_WDT_TEST_CMD
+#define TX_WDT_TEST_CMD                0
+#endif
+#define TX_WDT_TEST_MS               100
+
+// `tx test` sends 1 s of carrier; allow one every TX_TEST_MIN_INTERVAL_MS
+// (10 s -> at most 10% duty on Q1 / IC1).
+#define TX_TEST_MIN_INTERVAL_MS    10000
+
+/*
+ * Si4463 digital PA ramp-up (PA_MODE.DIG_PWR_SEQ = 1). PA_DIG_PWR_SEQ_CONFIG
+ * steps PA_PWR_LVL up from 0 one DDAC step at a time, DIG_PWR_SEQ_DELAY x
+ * 0.1 us per step (3..127). The delay is computed per level so the ramp
+ * lasts about PA_RAMP_TARGET_US for any pa_level (it is shorter only for
+ * levels below ~20, where the 12.7 us maximum delay is reached).
+ */
+#define PA_RAMP_TARGET_US            250
+
+/*
+ * Si446x rev C2A errata 2.12: the falling edge of the digital PA ramp is
+ * abrupt. Silicon Labs workaround, applied once to U1 after POWER_UP:
+ * SPI write F1 47 4B 00, wait CTS, then SLEEP -> READY.
+ * https://www.silabs.com/documents/public/errata/ezradio-ezradiopro-c2a-a2a-errata.pdf
+ * Off by default; the PA bias RC ramp-down (PA8) is used either way.
+ * Enable with -DSI446X_ERRATA_2_12_RAMPDOWN_FIX=1 and verify the TX envelope.
+ */
+#ifndef SI446X_ERRATA_2_12_RAMPDOWN_FIX
+#define SI446X_ERRATA_2_12_RAMPDOWN_FIX 0
+#endif
 
 /*
  * USART1 (host/ESP32/USB) slot-aligned output around own AIS TX.

@@ -28,6 +28,9 @@
 #include <stdint.h>
 #include <map>
 
+// Bounded CTS polls when aborting a transmission (~2 SPI bytes each)
+#define TX_ABORT_CTS_POLLS 200
+
 class Transceiver : public Receiver, public EventConsumer
 {
 public:
@@ -54,6 +57,9 @@ public:
   uint8_t defaultPALevel() const;
   static void paDefaults(uint16_t partNumber, pa_params &pwr);
   bool applyPALevel(uint8_t level);
+  bool abortTransmission();
+  void setTXWatchdogTest(uint32_t ms, bool simulateUnresponsive);
+  static uint8_t digPwrSeqConfig(uint8_t level);
 
 protected:
   void configure();
@@ -63,8 +69,11 @@ private:
   void configureGPIOsForTX();
   void setTXPower(const pa_params &params);
   void reportTXEvent();
+  uint32_t txWatchdogMs() const;
 private:
   TXPacket    *mTXPacket;
+  volatile uint32_t mTXWdtTestMs;
+  volatile bool     mTXWdtTestHard;
   time_t      mUTC;
   time_t      mLastTXTime;
   //map<VHFChannel, uint8_t> mNoiseFloorCache;

@@ -114,6 +114,7 @@ irq_callback sotdmaCallback = nullptr;
 irq_callback trxClockCallback = nullptr;
 irq_callback rxClockCallback = nullptr;
 irq_callback tickCallback = nullptr;
+irq_callback txWdtCallback = nullptr;
 
 StationData __station = {0};
 
@@ -229,6 +230,7 @@ static const GPIO __gpios[] = {
 
 void gpio_pin_init();
 static void eeprom_init();
+static void tx_wdt_init();
 
 static void gnss_tx_dma_abort()
 {
@@ -451,6 +453,8 @@ void bsp_hw_init()
 
   HAL_NVIC_SetPriority(EXTI3_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+
+  tx_wdt_init();
 
   memset(&__station, 0, sizeof(StationData));
 }
@@ -1343,6 +1347,75 @@ void bsp_set_gnss_1pps_callback(irq_callback cb)
   ppsCallback = cb;
 }
 
+/*
+ * TX watchdog on TIM7 (basic timer, unused elsewhere): 10 kHz tick (0.1 ms),
+ * one-pulse mode, update interrupt at NVIC priority 1 like the radio bit
+ * clocks and TIM2, so it never preempts them (and vice versa).
+ */
+static void tx_wdt_init()
+{
+  __HAL_RCC_TIM7_CLK_ENABLE();
+
+  uint32_t clk = HAL_RCC_GetPCLK1Freq();
+  if ( (RCC->CFGR & RCC_CFGR_PPRE1) != RCC_CFGR_PPRE1_DIV1 )
+    clk *= 2U;                                // APB1 timer clock is x2 when APB1 is divided
+
+  TIM7->CR1  = 0;
+  TIM7->DIER = 0;
+  TIM7->PSC  = (clk / 10000U) - 1U;
+  TIM7->ARR  = 0xFFFFU;
+  TIM7->CR1  = TIM_CR1_OPM | TIM_CR1_URS;     // one-shot; a software UG does not set UIF
+  TIM7->EGR  = TIM_EGR_UG;                    // load PSC now
+  TIM7->SR   = 0;
+
+  HAL_NVIC_SetPriority(TIM7_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(TIM7_IRQn);
+}
+
+void bsp_set_tx_wdt_callback(irq_callback cb)
+{
+  txWdtCallback = cb;
+}
+
+void bsp_tx_wdt_arm(uint32_t ms)
+{
+  if ( ms == 0 )
+    ms = 1;
+  if ( ms > 6500U )
+    ms = 6500U;                               // 16-bit counter at 10 kHz
+
+  TIM7->CR1 &= ~TIM_CR1_CEN;
+  TIM7->DIER = 0;
+  TIM7->CNT  = 0;
+  TIM7->ARR  = ms * 10U - 1U;
+  TIM7->SR   = 0;
+  TIM7->DIER = TIM_DIER_UIE;
+  TIM7->CR1 |= TIM_CR1_CEN;
+}
+
+void bsp_tx_wdt_disarm()
+{
+  TIM7->CR1 &= ~TIM_CR1_CEN;
+  TIM7->DIER = 0;
+  TIM7->SR   = 0;
+  NVIC_ClearPendingIRQ(TIM7_IRQn);
+}
+
+void bsp_rf_safe_shutdown()
+{
+  // Stop every source of radio SPI traffic first (bit clocks, SOTDMA, TX watchdog)
+  HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+  HAL_NVIC_DisableIRQ(EXTI3_IRQn);
+  HAL_NVIC_DisableIRQ(TIM2_IRQn);
+  HAL_NVIC_DisableIRQ(TIM7_IRQn);
+  TIM7->CR1 &= ~TIM_CR1_CEN;
+  __DSB();
+  __ISB();
+
+  HAL_GPIO_WritePin(PA_BIAS_PORT, PA_BIAS_PIN, GPIO_PIN_RESET);   // Q1 gate bias off
+  HAL_GPIO_WritePin(SDN1_PORT, SDN1_PIN, GPIO_PIN_SET);           // U1 (transceiver) shut down
+}
+
 void bsp_set_trx_clk_callback(irq_callback cb)
 {
   trxClockCallback = cb;
@@ -1382,6 +1455,7 @@ uint8_t bsp_tx_spi_byte(uint8_t data)
 
 void bsp_reboot()
 {
+  bsp_rf_safe_shutdown();
   bsp_gnss_off();
   HAL_Delay(50);
   NVIC_SystemReset();
@@ -1394,6 +1468,9 @@ bool bsp_is_tx_disabled()
 
 void bsp_enter_dfu()
 {
+  // No RF while waiting for the reset: PA bias off, U1 in shutdown
+  bsp_rf_safe_shutdown();
+
   // Cut off the GPS signals immediately to prevent its UART from transmitting and hijacking the bootloader upon reset
   bsp_gnss_off();
 
@@ -1436,6 +1513,7 @@ extern "C"
         char c = (char)USART1->RDR;
         if ( gUart1RxMute )
           {
+            gUart1RxLost = 1;
 #if NMEA_DIAG
             gUart1RxDiscard++;
 #endif
@@ -1469,6 +1547,17 @@ extern "C"
       }
   }
 
+
+  void TIM7_IRQHandler(void)
+  {
+    if ( TIM7->SR & TIM_SR_UIF )
+      {
+        TIM7->SR = 0;
+        TIM7->DIER = 0;
+        if ( txWdtCallback )
+          txWdtCallback();
+      }
+  }
 
   void TIM2_IRQHandler(void)
   {
