@@ -72,12 +72,22 @@ void Transceiver::configure()
    * AIS uses a slightly different Gaussian shape than default GMSK in the Si4463.
    * This sets the TX filter coefficients for a BT of 0.4 as per ITU specification.
    *
+   * The TX shaping filter is a symmetric 17-tap FIR (10 samples/symbol); only 9
+   * coefficients are stored: MODEM_TX_FILTER_COEFF_8 (centre tap) .. COEFF_0, at
+   * MODEM group 0x20, properties 0x0F..0x17. Chip defaults (0x67..0x01) are BT=0.5.
+   * The values below are a BT=0.4 Gaussian normalised to the same DC gain, so the
+   * frequency deviation is unchanged. The shaping filter works in TX direct
+   * synchronous mode (set above), not in asynchronous mode.
+   *
+   * Before 4.6.0 this was written to group 0x22 (PA), which has no such properties
+   * (only 0x2200-0x2206), so the chip kept its default BT=0.5 filter.
+   *
    * https://www.silabs.com/community/wireless/proprietary/forum.topic.html/si4463_gmsk_spectrum-ojkN
    */
   uint8_t data[] = { 0x52, 0x4f, 0x45, 0x37, 0x28, 0x1a, 0x10, 0x09, 0x04 };
-  p.Group = 0x22;
+  p.Group = 0x20;           // MODEM
   p.NumProperties = 9;
-  p.StartProperty = 0x0f;
+  p.StartProperty = 0x0f;   // MODEM_TX_FILTER_COEFF_8
   memcpy(p.Data, data, sizeof data);
   sendCmd(SET_PROPERTY, &p, 12, NULL, 0);
 

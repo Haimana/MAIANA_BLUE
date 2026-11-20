@@ -41,8 +41,6 @@
 #define TX_CONFIG_MAGIC       0x8112BBBB
 
 
-//static StationDataPage __page;
-
 Configuration &Configuration::instance()
 {
   static Configuration __instance;
@@ -60,6 +58,8 @@ void Configuration::init()
 
   bsp_read_config_flags(&mFlags);
 
+  reportNVMStatus();
+
   if ( !cliBootMode )
     {
       reportSystemData();
@@ -68,24 +68,55 @@ void Configuration::init()
     }
 }
 
-void Configuration::ensureFlags()
+void Configuration::reportNVMStatus()
+{
+  // $PAIEEP,<status>,<status register hex>*HH
+  // status: 0 = OK, 1 = block protection was cleared, 2 = block protection
+  // could not be cleared, 3 = EEPROM not responding (see BSP_NVM_*).
+  uint8_t sr = 0;
+  const uint8_t status = bsp_nvm_status(&sr);
+
+  Event *e = EventPool::instance().newEvent(PROPR_NMEA_SENTENCE);
+  if ( !e )
+    return;
+
+  sprintf(e->nmeaBuffer.sentence, "$PAIEEP,%u,%02X*", (unsigned)status, (unsigned)sr);
+  Utils::completeNMEA(e->nmeaBuffer.sentence);
+  EventQueue::instance().push(e);
+}
+
+ConfigFlags Configuration::flagsOrDefault() const
 {
   if ( mFlags.magic != CONFIG_FLAGS_MAGIC )
-    mFlags = {CONFIG_FLAGS_MAGIC, 0, {0}};
+    return ConfigFlags{CONFIG_FLAGS_MAGIC, 0, {0}};
+  return mFlags;
 }
 
-void Configuration::enableTX()
+bool Configuration::writeFlags(const ConfigFlags &f)
 {
-  ensureFlags();
-  mFlags.flags[0] &= ~CONFIG_FLAG_TX_INHIBIT;
-  bsp_write_config_flags(mFlags);
+  if ( bsp_write_config_flags(f) )
+    {
+      mFlags = f;
+      return true;
+    }
+
+  // Keep the RAM copy equal to what the EEPROM really holds
+  bsp_read_config_flags(&mFlags);
+  return false;
 }
 
-void Configuration::disableTX()
+bool Configuration::enableTX()
 {
-  ensureFlags();
-  mFlags.flags[0] |= CONFIG_FLAG_TX_INHIBIT;
-  bsp_write_config_flags(mFlags);
+  ConfigFlags f = flagsOrDefault();
+  f.flags[0] &= ~CONFIG_FLAG_TX_INHIBIT;
+  return writeFlags(f);
+}
+
+bool Configuration::disableTX()
+{
+  ConfigFlags f = flagsOrDefault();
+  f.flags[0] |= CONFIG_FLAG_TX_INHIBIT;
+  return writeFlags(f);
 }
 
 bool Configuration::isTXEnabled()
@@ -96,14 +127,14 @@ bool Configuration::isTXEnabled()
   return (mFlags.flags[0] & CONFIG_FLAG_TX_INHIBIT) == 0;
 }
 
-void Configuration::setHourlyReboot(bool enabled)
+bool Configuration::setHourlyReboot(bool enabled)
 {
-  ensureFlags();
+  ConfigFlags f = flagsOrDefault();
   if ( enabled )
-    mFlags.flags[0] &= ~CONFIG_FLAG_HRB_INHIBIT;
+    f.flags[0] &= ~CONFIG_FLAG_HRB_INHIBIT;
   else
-    mFlags.flags[0] |= CONFIG_FLAG_HRB_INHIBIT;
-  bsp_write_config_flags(mFlags);
+    f.flags[0] |= CONFIG_FLAG_HRB_INHIBIT;
+  return writeFlags(f);
 }
 
 bool Configuration::isHourlyRebootEnabled() const
@@ -129,22 +160,28 @@ bool Configuration::setGnssBaudCode(uint8_t code)
   if ( hadMagic && gnssBaudCode() == code )
     return true;
 
-  ensureFlags();
-  mFlags.flags[0] = (mFlags.flags[0] & ~CONFIG_FLAG_GNSS_BAUD_MASK)
+  ConfigFlags f = flagsOrDefault();
+  f.flags[0] = (f.flags[0] & ~CONFIG_FLAG_GNSS_BAUD_MASK)
       | ((uint32_t)code << CONFIG_FLAG_GNSS_BAUD_SHIFT);
 
   if ( !hadMagic )
     {
       // First flags write on this EEPROM: the magic must go too (one-time
-      // full write, ~150 ms).
-      bsp_write_config_flags(mFlags);
-      return true;
+      // full record write, a few write cycles).
+      return writeFlags(f);
     }
 
   // Bits 2-3 live in the low byte of flags[0] (little-endian), so only that
-  // byte changes. Rewriting it alone takes ~5 ms instead of ~150 ms.
-  return bsp_write_config_flags_byte((uint8_t)offsetof(ConfigFlags, flags),
-      (uint8_t)(mFlags.flags[0] & 0xffu));
+  // byte changes. Rewriting it alone takes one EEPROM write cycle.
+  if ( bsp_write_config_flags_byte((uint8_t)offsetof(ConfigFlags, flags),
+      (uint8_t)(f.flags[0] & 0xffu)) )
+    {
+      mFlags = f;
+      return true;
+    }
+
+  bsp_read_config_flags(&mFlags);
+  return false;
 }
 
 void Configuration::reportHourlyReboot()
@@ -248,9 +285,9 @@ bool Configuration::isStationDataProvisioned()
   return bsp_is_station_data_provisioned();
 }
 
-void Configuration::eraseStationData()
+bool Configuration::eraseStationData()
 {
-  bsp_erase_station_data();
+  return bsp_erase_station_data();
 }
 
 #if OTP_DATA
@@ -293,19 +330,23 @@ void Configuration::reportXOTrimValue()
   EventQueue::instance().push(e);
 }
 
-void Configuration::factoryReset()
+bool Configuration::factoryReset()
 {
-  bsp_erase_station_data();
-  mFlags = {0};
-  bsp_erase_config_flags();
+  const bool stationOk = bsp_erase_station_data();
+  bool flagsOk = bsp_erase_config_flags();
+  if ( flagsOk )
+    memset(&mFlags, 0, sizeof mFlags);
+  else
+    bsp_read_config_flags(&mFlags);
   // bsp_erase_xo_trim();
+  return stationOk && flagsOk;
 }
 
 bool Configuration::writeStationData(const StationData &data)
 {
-  bsp_write_station_data(data);
+  const bool ok = bsp_write_station_data(data);
   reportStationData();
-  return true;
+  return ok;
 }
 
 bool Configuration::readStationData(StationData &data)
@@ -322,10 +363,10 @@ bool Configuration::isXOTrimmed()
   return x.magic == XO_TRIM_MAGIC;
 }
 
-void Configuration::setXOTrimValue(uint8_t value)
+bool Configuration::setXOTrimValue(uint8_t value)
 {
   XOTrim x = {XO_TRIM_MAGIC, value, {0}};
-  bsp_write_xo_trim(x);
+  return bsp_write_xo_trim(x);
 }
 
 uint8_t Configuration::getXOTrimValue()

@@ -17,12 +17,12 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>
 */
 
-#ifndef INC_BSP_11_10_HPP_
-#define INC_BSP_11_10_HPP_
+#ifndef INC_BSP_12_1_HPP_
+#define INC_BSP_12_1_HPP_
 
 
 
-// GPIO Pin definitions
+// GPIO pin definitions for MAIANA Blue v12.1.0 (STM32L432KBU6, QFN-32)
 #define GNSS_EN_PORT              GPIOC
 #define GNSS_EN_PIN               GPIO_PIN_14
 
@@ -35,8 +35,8 @@
 #define RX_EVT_PORT               GPIOA
 #define RX_EVT_PIN                GPIO_PIN_1
 
-#define GNSS_1PPS_PORT            GPIOA
-#define GNSS_1PPS_PIN             GPIO_PIN_2
+#define GNSS_NMEA_TX_PORT         GPIOA
+#define GNSS_NMEA_TX_PIN          GPIO_PIN_2
 
 #define GNSS_NMEA_RX_PORT         GPIOA
 #define GNSS_NMEA_RX_PIN          GPIO_PIN_3
@@ -86,16 +86,16 @@
 #define TX_EVT_PORT               GPIOB
 #define TX_EVT_PIN                GPIO_PIN_5
 
-#define I2C_SCL_PORT              GPIOB
-#define I2C_SCL_PIN               GPIO_PIN_6
+#define EEPROM_CS_PORT            GPIOB
+#define EEPROM_CS_PIN             GPIO_PIN_6
 
-#define I2C_SDA_PORT              GPIOB
-#define I2C_SDA_PIN               GPIO_PIN_7
+#define GNSS_1PPS_PORT            GPIOB
+#define GNSS_1PPS_PIN             GPIO_PIN_7
 
-// GNSS is receive-only on this board: GNSS RXD is not wired to the MCU and
-// PA2 (the USART2_TX AF7 pin) is the 1PPS input. Do not repurpose PA2.
-#define BSP_GNSS_HAS_TX           0
+// Bidirectional GNSS UART on v12.1.0: PA2 (USART2_TX AF7) drives LC76G RXD,
+// PA3 (USART2_RX AF7) receives LC76G TXD, and 1PPS is routed to PB7 (EXTI9_5).
+#define BSP_GNSS_HAS_TX           1
 
 
 
-#endif /* INC_BSP_5_0_HPP_ */
+#endif /* INC_BSP_12_1_HPP_ */

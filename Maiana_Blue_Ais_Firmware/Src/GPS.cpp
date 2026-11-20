@@ -330,7 +330,8 @@ void GPS::configureModule()
   /*
    * TODO(BSP_GNSS_HAS_TX): extension point for boards where MCU TX reaches
    * GNSS RXD. Called once per lock, at the detected rate (kGnssBauds[mBaudIndex]).
-   * Not implemented: no current board can send to the module.
+   * Board 12.1 wires PA2 (USART2_TX) to the LC76G RXD and its BSP implements
+   * bsp_gnss_send(); the module configuration itself is not implemented yet.
    *
    * Possible use:
    *  - Identify the module from its own output: LC76G (Airoha) emits $PAIR /

@@ -224,7 +224,8 @@ void CommandProcessor::processCommand(const char *buff)
       station.bowOffset = Utils::toInt(tokens[7]);
       station.magic = STATION_DATA_MAGIC;
 
-      Configuration::instance().writeStationData(station);
+      if ( !Configuration::instance().writeStationData(station) )
+        DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
       TXScheduler::instance().reloadStationData();
     }
   else if ( s.find("station?") == 0 )
@@ -237,12 +238,14 @@ void CommandProcessor::processCommand(const char *buff)
     }
   else if ( s.find("hourlyreboot on") == 0 )
     {
-      Configuration::instance().setHourlyReboot(true);
+      if ( !Configuration::instance().setHourlyReboot(true) )
+        DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
       Configuration::instance().reportHourlyReboot();
     }
   else if ( s.find("hourlyreboot off") == 0 )
     {
-      Configuration::instance().setHourlyReboot(false);
+      if ( !Configuration::instance().setHourlyReboot(false) )
+        DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
       Configuration::instance().reportHourlyReboot();
     }
   else if ( s.find("hourlyreboot?") == 0 )
@@ -296,13 +299,15 @@ void CommandProcessor::processCommand(const char *buff)
     }
   else if ( s.find("erase station") == 0 )
     {
-      Configuration::instance().eraseStationData();
+      if ( !Configuration::instance().eraseStationData() )
+        DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
       TXScheduler::instance().reloadStationData();
       Configuration::instance().reportStationData();
     }
   else if ( s.find("factory reset") == 0 )
     {
-      Configuration::instance().factoryReset();
+      if ( !Configuration::instance().factoryReset() )
+        DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
       TXScheduler::instance().reloadStationData();
       Configuration::instance().reportStationData();
       Configuration::instance().reportHourlyReboot();
@@ -313,12 +318,14 @@ void CommandProcessor::processCommand(const char *buff)
     }
   else if ( s.find("tx on") == 0 )
     {
-      Configuration::instance().enableTX();
+      if ( !Configuration::instance().enableTX() )
+        DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
       TXScheduler::instance().reportTXStatus();
     }
   else if ( s.find("tx off") == 0 )
     {
-      Configuration::instance().disableTX();
+      if ( !Configuration::instance().disableTX() )
+        DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
       TXScheduler::instance().reportTXStatus();
     }
   else if ( s.find("tx?") == 0 )
@@ -403,7 +410,9 @@ void CommandProcessor::processCommand(const char *buff)
     {
       uint8_t value = Utils::toInt(s.substr(7));
       RadioManager::instance().setXOTrimValue(value);
-      Configuration::instance().setXOTrimValue(value);
+      if ( !Configuration::instance().setXOTrimValue(value) )
+        DataTerminal::instance().write("ERROR: EEPROM write failed\r\n");
+      Configuration::instance().reportXOTrimValue();
     }
   else if ( s.find("xotrim?") == 0 )
     {

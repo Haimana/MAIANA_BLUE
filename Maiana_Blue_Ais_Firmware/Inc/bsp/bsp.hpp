@@ -29,7 +29,7 @@
 // or define a different symbol in the preprocessor to build for a different board
 
 #ifndef BOARD_REV
-#define BOARD_REV 114
+#define BOARD_REV 121
 #endif
 
 /**
@@ -81,30 +81,45 @@ void bsp_gps_led_on();
 void bsp_gps_led_off();
 
 /**
- * Station data persistence related
+ * Non-volatile storage (EEPROM) health, evaluated once by bsp_hw_init().
+ * bsp_nvm_status() returns one of BSP_NVM_* and optionally the raw status
+ * register byte read at init (0 if the device did not answer).
+ */
+#define BSP_NVM_OK                0   // present, no write protection
+#define BSP_NVM_BP_CLEARED        1   // block protection was set and has been cleared
+#define BSP_NVM_BP_CLEAR_FAILED   2   // block protection is set and could not be cleared
+#define BSP_NVM_NOT_RESPONDING    3   // no valid answer from the EEPROM
+uint8_t bsp_nvm_status(uint8_t *statusReg);
+
+/**
+ * Station data persistence related.
+ * All write/erase functions return true only after the record has been
+ * written and read back successfully. Records are written power-loss safe
+ * (magic invalidated first, written last). On failure the RAM copy used by
+ * bsp_is_station_data_provisioned() is re-read from the EEPROM.
  */
 void bsp_read_station_data(StationData *data);
-void bsp_write_station_data(const StationData &data);
-void bsp_erase_station_data();
+bool bsp_write_station_data(const StationData &data);
+bool bsp_erase_station_data();
 bool bsp_is_station_data_provisioned();
 
 /**
  * Configuration flag persistence
  */
 void bsp_read_config_flags(ConfigFlags *flags);
-void bsp_write_config_flags(const ConfigFlags &flags);
-void bsp_erase_config_flags();
+bool bsp_write_config_flags(const ConfigFlags &flags);
+bool bsp_erase_config_flags();
 // Rewrite a single byte of the stored ConfigFlags (offset into the struct)
-// and verify it. A few ms instead of rewriting the whole struct.
+// and verify it. One write cycle instead of rewriting the whole record.
 bool bsp_write_config_flags_byte(uint8_t offset, uint8_t value);
 
 void bsp_read_xo_trim(XOTrim *t);
-void bsp_write_xo_trim(const XOTrim &t);
-void bsp_erase_xo_trim();
+bool bsp_write_xo_trim(const XOTrim &t);
+bool bsp_erase_xo_trim();
 
 bool bsp_read_tx_config(TXConfig *c);
 bool bsp_write_tx_config(const TXConfig &c);
-void bsp_erase_tx_config();
+bool bsp_erase_tx_config();
 
 // Callback for processing UART input (interrupt)
 typedef void(*char_input_cb)(char c);
@@ -137,7 +152,7 @@ uint8_t bsp_tx_spi_byte(uint8_t b);
 extern const char *BSP_HW_REV;
 
 // BSP header
-#include <bsp_11_10.hpp>
+#include <bsp_12_1.hpp>
 
 /**
  * GNSS link capability.
@@ -146,7 +161,6 @@ extern const char *BSP_HW_REV;
  * RXD, so the firmware can send configuration sentences (baud, sentence set).
  * A board header that wires it defines BSP_GNSS_HAS_TX 1 and its BSP
  * implements bsp_gnss_send(). GPS::configureModule() is the consumer.
- * Current boards are receive-only.
  */
 #ifndef BSP_GNSS_HAS_TX
 #define BSP_GNSS_HAS_TX 0

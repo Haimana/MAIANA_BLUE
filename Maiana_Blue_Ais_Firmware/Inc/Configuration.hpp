@@ -37,18 +37,20 @@ public:
   bool writeStationData(const StationData &data);
   bool readStationData(StationData &data);
   bool isStationDataProvisioned();
-  void eraseStationData();
+  bool eraseStationData();
 
   void reportStationData();
   void reportOTPData();
   const OTPData *readOTP();
   bool writeOTP(const OTPData &data);
   void reportSystemData();
-  void enableTX();
-  void disableTX();
+  // Persisted settings: all setters return false if the EEPROM write or its
+  // read-back failed; the RAM copy then reflects what the EEPROM holds.
+  bool enableTX();
+  bool disableTX();
   bool isTXEnabled();
 
-  void setHourlyReboot(bool enabled);
+  bool setHourlyReboot(bool enabled);
   bool isHourlyRebootEnabled() const;
   void reportHourlyReboot();
 
@@ -58,7 +60,7 @@ public:
   bool setGnssBaudCode(uint8_t code);
 
   bool isXOTrimmed();
-  void setXOTrimValue(uint8_t value);
+  bool setXOTrimValue(uint8_t value);
   uint8_t getXOTrimValue();
   void reportXOTrimValue();
 
@@ -68,11 +70,13 @@ public:
   uint8_t getPALevel();
   void reportTXConfig();
 
-  void factoryReset();
+  bool factoryReset();
+  void reportNVMStatus();
 private:
 
   Configuration();
-  void ensureFlags();
+  ConfigFlags flagsOrDefault() const;
+  bool writeFlags(const ConfigFlags &f);
 
   uint32_t nextAvailableOTPSlot();
   const char *hwRev();

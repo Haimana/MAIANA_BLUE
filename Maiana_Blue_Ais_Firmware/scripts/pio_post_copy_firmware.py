@@ -46,6 +46,21 @@ def _sanitize_token(s):
     return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in str(s))
 
 
+def _hw_token(board_rev):
+    """BOARD_REV (e.g. 121) -> "hw12_1": major = all digits but the last,
+    minor = last digit, matching BSP_HW_REV "12.1.0" / bsp_12_1. Without a
+    -DBOARD_REV build flag the image is tagged "hwUnknown" so it can never be
+    mistaken for an image built for a specific board."""
+    if board_rev is None:
+        print("pio_post_copy_firmware: WARNING BOARD_REV not in build_flags, "
+              "binary name gets hwUnknown")
+        return "hwUnknown"
+    br = str(board_rev).strip()
+    if br.isdigit() and len(br) >= 2:
+        return "hw%s_%s" % (br[:-1], br[-1])
+    return "hw" + _sanitize_token(br)
+
+
 def _find_bootloader_bin(project_dir, mcu):
     mcu_lower = mcu.lower().replace("stm32", "")
     for prefix, filename in _MCU_BOOTLOADER_MAP.items():
@@ -132,32 +147,22 @@ def _post_copy(source, target, env):
     mcu = board.get("build.mcu", "mcu")
     mcu_short = _sanitize_token(mcu.replace("stm32", "").replace("STM32", ""))
 
-    pioenv = _sanitize_token(env["PIOENV"])
     fw = _read_fw_rev(project_dir)
     fw_token = _sanitize_token(fw.replace(".", "_"))
 
     br = _get_cpp_define(env, "BOARD_REV")
-    br_token = f"br{_sanitize_token(br)}" if br is not None else None
+    hw_token = _hw_token(br)
 
     vect = _get_cpp_define(env, "VECT_TAB_OFFSET")
     boot_token = "boot0x4800" if vect else "fullflash"
 
-    leg = _get_cpp_define(env, "LEGACY_BREAKOUTS")
-    if leg is not None:
-        breakout = "legacyBo" if str(leg) in ("1", "true", "True") else "newBo"
-    else:
-        breakout = "boUnknown"
-
     parts = [
         "maiana",
         mcu_short,
-        pioenv,
+        hw_token,
         f"fw{fw_token}",
-        breakout,
         boot_token,
     ]
-    if br_token:
-        parts.append(br_token)
 
     name = "_".join(parts) + ".bin"
     out_dir = os.path.join(project_dir, "Binaries")

@@ -25,7 +25,7 @@
 #include "TXPowerSettings.h"
 
 
-#define FW_REV                        "4.5.16"
+#define FW_REV                        "4.6.0"
 
 // Message 18 true heading is dropped (511) when the last sample is older than this.
 #define HEADING_MAX_AGE_MS            10000
