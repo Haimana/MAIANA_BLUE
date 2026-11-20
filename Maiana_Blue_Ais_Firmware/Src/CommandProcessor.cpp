@@ -39,6 +39,7 @@
 #include "TXPacket.hpp"
 #include "Configuration.hpp"
 #include "CliParse.hpp"
+#include "GnssCmd.hpp"
 #include "AISChannels.h"
 #include <stm32l4xx_hal.h>
 #include <stdio.h>
@@ -187,6 +188,7 @@ void CommandProcessor::processCommand(const char *buff)
       DataTerminal::instance().write("  gps on                              - Enable GNSS receiver\r\n");
       DataTerminal::instance().write("  gps off                             - Disable GNSS receiver\r\n");
       DataTerminal::instance().write("  gnss?                               - Report GNSS UART rate / detection state ($PAIGNSS)\r\n");
+      DataTerminal::instance().write("  gnss <$sentence>                    - Send a whitelisted $PAIR/$PQTM sentence to the GNSS (checksum optional)\r\n");
       DataTerminal::instance().write("  heading <deg>                      - Set true heading for message 18 (0-360)\r\n");
       DataTerminal::instance().write("  heading off                         - Clear true heading (message 18 sends 511)\r\n");
       DataTerminal::instance().write("  heading?                            - Report true heading ($PAIHDG)\r\n");
@@ -387,6 +389,38 @@ void CommandProcessor::processCommand(const char *buff)
   else if ( s.find("gnss?") == 0 )
     {
       GPS::instance().reportLink();
+    }
+  else if ( s.compare(0, 5, "gnss ") == 0 )
+    {
+      // Forward one whitelisted configuration sentence to the GNSS module
+      // (see GnssCmd.hpp). The module's reply ($PAIR001 / $PQTM...) arrives
+      // in the normal GNSS echo stream.
+#if BSP_GNSS_HAS_TX
+      string arg = s.substr(5);
+      Utils::trim(arg);
+      char line[GNSS_CMD_MAX_LEN + 8];
+      const char *err = gnss_cmd::build(arg, line, sizeof line);
+      if ( err )
+        {
+          string m("ERROR: ");
+          m += err;
+          m += "\r\n";
+          DataTerminal::instance().write(m.c_str());
+        }
+      else if ( !GPS::instance().sendCommand(line) )
+        {
+          DataTerminal::instance().write("ERROR: GNSS off, not locked or busy, retry\r\n");
+        }
+      else
+        {
+          string m("OK, sent to GNSS: ");
+          m.append(line, strlen(line) - 2);   // without CR LF
+          m += "\r\n";
+          DataTerminal::instance().write(m.c_str());
+        }
+#else
+      DataTerminal::instance().write("ERROR: no GNSS TX line on this board\r\n");
+#endif
     }
   else if ( isExactly(s, "heading off") )
     {

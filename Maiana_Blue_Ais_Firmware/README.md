@@ -4,7 +4,7 @@ This directory is the **PlatformIO** build (VS Code + PlatformIO, `platformio.in
 
 Upstream concept and license remain those of the **MAIANA** project (GPL v3, Peter Antypas).
 
-- **Firmware version:** `FW_REV` **4.6.1** (`Inc/config.h`), reported in `$PAISYS`.
+- **Firmware version:** `FW_REV` **4.6.2** (`Inc/config.h`), reported in `$PAISYS`.
 - **MCU:** STM32L432KB (bootloader layout, application at `0x08004800`).
 - **Radios:** 2 × Si4463 (U1 = transceiver on channel A, U2 = receiver on channel B), sharing `SPI1`.
 - **GNSS:** Quectel LC76G on `USART2`.
@@ -104,12 +104,12 @@ Behaviour (`Src/bsp/bsp_12_1.cpp`):
 
 Commands are case-sensitive, one per line (CR ignored, LF ends the line). `help` prints the list. Replies are NMEA-style `$PAI...*hh` sentences unless shown otherwise.
 
-Line and matching rules (4.6.1):
+Line and matching rules (4.6.2):
 
 - Commands that transmit, reset or write configuration must be the **whole line** (surrounding blanks are ignored): `dfu`, `reboot`, `cli`, `factory reset`, `erase station`, `hourlyreboot on|off`, `gps on|off`, `heading off`, `tx on|off`, `tx test`, `stoptx`, `msg24`. Anything else (e.g. `reboot now`, or an echoed `help` line) is ignored.
-- Commands with arguments (`station`, `xotrim`, `pa_level`, `heading`, `otp`) must start the line and their arguments are validated; invalid input is rejected and nothing is written.
+- Commands with arguments (`station`, `xotrim`, `pa_level`, `heading`, `otp`, `gnss`) must start the line and their arguments are validated; invalid input is rejected and nothing is written.
 - Up to 4 junk bytes in front of a **read-only/idempotent** command (`help`, the `…?` queries, `heading <deg>`, `heading off`) are skipped (TX interference on the RX line). Other commands are never searched for inside a line.
-- `$` or `!` anywhere in a line restarts it (NMEA resync), so a cut heading sentence followed by a full one is still accepted. Exception: inside a `station ` line, where name and callsign may contain `$` and `!` (AIS 6-bit charset).
+- `$` or `!` anywhere in a line restarts it (NMEA resync), so a cut heading sentence followed by a full one is still accepted. Exceptions: inside a `station ` line, where name and callsign may contain `$` and `!` (AIS 6-bit charset), and inside a `gnss ` line, whose argument is a `$...` sentence.
 - Lines starting with `!` (e.g. our own `!AIVDM` echoed back by a multiplexer) are ignored; lines starting with `$` are only parsed as heading input (`$--HDT`, `$--HDG`, `$PAIHDG`, checksum required).
 - A line that was partly lost because USART1 RX is muted around our own transmission is dropped instead of being merged with the next line.
 
@@ -128,6 +128,7 @@ Line and matching rules (4.6.1):
 | `msg24` | Queue message 24 | `$PAISCHTX,...` |
 | `gps on` / `gps off` | Power-cycle / switch off the GNSS | — |
 | `gnss?` | GNSS link | `$PAIGNSS,<baud>,<link state>,<hint baud>,<probe switches>,<rx errors>,<has TX 0/1>` |
+| `gnss <$sentence>` | Forward one whitelisted LC76G configuration sentence (`$PAIR...` / `$PQTM...`, `*HH` optional; computed if missing, verified if given) to the GNSS module over USART2. Only with a locked GNSS link. See *GNSS passthrough* | `OK, sent to GNSS: $...*HH` then the module's own reply (`$PAIR001,<cmd>,<result>`, `$PQTM...`) in the NMEA stream; or `ERROR: invalid GNSS sentence` / `bad checksum` / `GNSS sentence too long` / `GNSS command not allowed` / `invalid or unsafe GNSS parameters` / `GNSS off, not locked or busy, retry` |
 | `heading <0-360>` / `heading off` / `heading?` | True heading for message 18 | `$PAIHDG,<deg>,...` or `$PAIHDG,,511` |
 | `xotrim <0-255>` | Apply and save XO trim (digits only) | `$PAIXOTR,<n>` (preceded by `ERROR: EEPROM write failed` on failure) or `ERROR: invalid xotrim (0-255)` |
 | `xotrim?` | Report XO trim | `$PAIXOTR,<n>` |
@@ -146,7 +147,32 @@ Unsolicited sentences: `$PAIEEP` (boot), `$PAITXCFG` (boot), `$PAITX,<A/B>,<msg>
 - `$PAITXC`: first field = stored level, or the default if nothing is stored; second field = `1` if a stored TX config exists, else `0`.
 - Defaults (`Transceiver::paDefaults()`): Si4463 `pa_mode` 0x48 / `pa_level` 0x28 (40). `pa_mode` and `pa_bias_clkduty` always follow the chip; only `pa_level` is stored. The output stage is an external LDMOS (Q1) driven by the Si4463, so the level is not linear in dBm — measure on your hardware.
 
+### GNSS passthrough (`gnss <$sentence>`, 4.6.2)
+
+Validation lives in `Inc/GnssCmd.hpp` (host-testable). Max 72 characters after `gnss `, printable ASCII, no blanks, no `$`/`!`/`*` inside. Bare `$PAIR...` lines from the console are **not** forwarded (they are heading input), so a multiplexer echoing the module's replies back cannot loop.
+
+Allowed (anything else is refused):
+
+- Restarts / NVM / info: `PAIR002`, `PAIR004` hot, `PAIR005` warm, `PAIR006` cold, `PAIR511` save nav data, `PAIR513` save settings, `PAIR514` defaults, `PQTMSAVEPAR`, `PQTMRESTOREPAR`, `PQTMVERNO`.
+- Queries: `PAIR051`, `PAIR059`, `PAIR063,<-1..9>`, `PAIR067`, `PAIR071`, `PAIR073`, `PAIR075`, `PAIR081`, `PAIR163`, `PAIR401`, `PAIR411`, `PAIR470,<0..3>`, `PAIR491`, `PAIR865,0,0`, `PQTMCFG{PPS,ANTENNA,NMEADP,NMEATID,ODO,GEOFENCE,SLAS},R[,n[,n]]`.
+- Settings with field checks: `PAIR050,1000` only; `PAIR058,<9..30>`; `PAIR062,<type -1..9>,<rate 0..20>` with GGA (0) and RMC (4) only at 1; `PAIR066,1,x,x,x,x,0` / `PQTMCFGCNST,W,1,x,x,x,x,0` (GPS stays on) and `PQTMCFGCNST,R`; `PAIR070,<0..20>`; `PAIR072,<0..45>`; `PAIR074/162/391/410/490/496,<0|1>`; `PAIR080,<0|1|3|4|5|7>`; `PAIR400,<0|2|3>`; `PAIR498,<1|3|5>`; `PAIR590,YYYY,M,D,h,m,s`; `PAIR600,lat,lon,h,accMaj,accMin,bear,accV`; `PAIR864,0,0,115200` only; `PQTMCFGMSGRATE,R,<name>[,ver]`; `PQTMCFGMSGRATE,W,` GLL/GSA/GSV/VTG/ZDA/GRS/GST/GNS `<0|1>`, RMC/GGA `1` only, `PQTMEPE,<0|1>,2`, `PQTMDOP,<0|1>,1`, `PQTMJAMMINGSTATUS,<0|1>,1`.
+- Refused on purpose: `PAIR003` (power off), `PAIR650`/`382`/`680`/`690`/`730`/`732` (sleep / low power), `PAIR086` (debug log), `PAIR75x`/`76x` and `PQTMCFGPPS,W` (1PPS), other `PAIR864` rates, `PAIR43x` (RTCM), `PAIR9xx` (LOCUS), `PAIR471`/`472` (EPO data; lines too long for the CLI), `PQTMPVT`, PQTM config writes other than above, `PAIR080` modes 2/6.
+
+Settings not saved with `PAIR513` / `PQTMSAVEPAR` are lost on `gps off` / `gps on` (power cycle). `gnss $PAIR514` restores the module defaults.
+
 ---
+
+## Changes in 4.6.2
+
+- **New CLI command `gnss <$sentence>`** (hardware 12.1, `BSP_GNSS_HAS_TX`): forwards one `$PAIR...` / `$PQTM...` configuration sentence to the Quectel LC76G over USART2, using the existing TX DMA path (`bsp_gnss_send()`). Listed in `help`. Replies: `OK, sent to GNSS: $...*HH`, then the module's own answer (`$PAIR001,<cmd>,<result>`, `$PQTM...`) arrives through the normal GNSS echo; errors are `ERROR: invalid GNSS sentence` / `bad checksum` / `GNSS sentence too long` / `GNSS command not allowed` / `invalid or unsafe GNSS parameters` / `GNSS off, not locked or busy, retry` / `no GNSS TX line on this board`.
+- **Checksum optional**: without `*HH` it is computed; with `*HH` it is verified and a wrong one is refused.
+- **Whitelist with field checks** in the new header **`Inc/GnssCmd.hpp`** (`gnss_cmd::build()`, host-testable): max 72 characters, printable ASCII, no blanks or embedded `$`/`!`/`*`, canonical integers (no leading zeros / `-0`). Only the commands listed in *GNSS passthrough* are accepted, and their parameters are range-checked: RMC/GGA output (rate 1, `PAIR050,1000`, `PQTMCFGMSGRATE` RMC/GGA 1), GPS enabled in `PAIR066`/`PQTMCFGCNST`, UART rate (`PAIR864,0,0,115200` only) and 1PPS cannot be changed, so the AIS position input keeps working.
+- **Refused on purpose**: power off (`PAIR003`), sleep / low-power modes (`PAIR650/382/680/690/730/732`), debug log (`PAIR086`), 1PPS settings (`PAIR75x/76x`, `PQTMCFGPPS,W`), other baud rates, RTCM (`PAIR43x`), LOCUS (`PAIR9xx`), EPO data (`PAIR471/472`, too long for the CLI), `PQTMPVT`, other PQTM writes, `PAIR080` modes 2/6.
+- **`GPS::sendCommand()`** (`Inc/GPS.hpp`, `Src/GPS.cpp`): sends only while the GNSS link is locked (auto-baud done), otherwise the command is refused.
+- **CLI line assembler** (`Inc/CliParse.hpp`): no `$`/`!` resync inside a `gnss ` line (like `station `), since its argument is a `$` sentence; `gnss ` is in the verb list but is **not** a junk-skip target, so it must start the line. Bare `$PAIR...` console lines are still heading input only and are never forwarded (no loop with an echoing multiplexer).
+- **Persistence**: settings are volatile in the LC76G until saved with `gnss $PAIR513` or `gnss $PQTMSAVEPAR`; unsaved settings are lost on `gps off` / `gps on`. `gnss $PAIR514` restores module defaults. `PAIR864` needs a module restart and is not saved.
+- `FW_REV` 4.6.2. Binaries: `maiana_l432kb_hw12_1_fw4_6_2_boot0x4800.bin` (141472 B, CRC32 00A5BE32) and `..._combined.bin` (159904 B, CRC32 6E6A1422).
+- No other behaviour change (AIS RX/TX, pa_level, xotrim, station data unchanged).
 
 ## Changes in 4.6.1
 
@@ -160,6 +186,8 @@ Unsolicited sentences: `$PAIEEP` (boot), `$PAITXCFG` (boot), `$PAITX,<A/B>,<msg>
 - **Si446x errata 2.12 ramp-down workaround** behind `SI446X_ERRATA_2_12_RAMPDOWN_FIX` in `Inc/config.h` (default **0 / off**).
 - GPIO3 comments corrected (0x20 = TX_STATE, 0x21 = RX_STATE); no behaviour change.
 - Bench-only commands `tx test wdt` / `tx test wdt hard` (force the watchdog after 100 ms, optionally simulating an unresponsive transmitter) exist only when built with `TX_WDT_TEST_CMD=1` (`Inc/config.h`, default **0**; not in release bins).
+- Bounded CTS polling (`RFIC::pollCTS`, `TX_ABORT_CTS_POLLS`) on the TX abort / recovery paths, so an unresponsive Si4463 cannot hang the firmware.
+- Binaries: `maiana_l432kb_hw12_1_fw4_6_1_boot0x4800.bin` (137104 B, CRC32 2F35E9C5) and `..._combined.bin` (CRC32 76007D6B).
 - Not changed: no MCU-temperature TX inhibit (no ADC driver in tree), no PWM bias ramp.
 
 ## Notable changes in 4.6.0

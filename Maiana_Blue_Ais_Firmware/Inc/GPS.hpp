@@ -82,6 +82,10 @@ public:
 	uint8_t linkState() const;
 	uint32_t gnssBaud() const;
 	void reportLink();
+	// Send one complete sentence ("$...*HH\r\n") to the GNSS module.
+	// False if the board has no GNSS TX line, the link is not locked or a
+	// previous send is still in progress.
+	bool sendCommand(const char *sentence);
 
 private:
 	GPS();

@@ -417,6 +417,18 @@ uint32_t GPS::gnssBaud() const
   return bsp_gnss_baud();
 }
 
+bool GPS::sendCommand(const char *sentence)
+{
+#if BSP_GNSS_HAS_TX
+  if ( mLinkState != LINK_LOCKED )
+    return false;
+  return bsp_gnss_send(sentence);
+#else
+  (void)sentence;
+  return false;
+#endif
+}
+
 void GPS::reportLink()
 {
   // $PAIGNSS,<baud>,<state 0=off 1=probe 2=locked>,<stored hint baud, 0=none>,

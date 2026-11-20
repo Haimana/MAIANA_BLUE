@@ -27,7 +27,8 @@ namespace cli
  * - CR is ignored, LF ends a line.
  * - A line may only start with a letter, '$' or '!' (other leading bytes are TX EMI).
  * - '$' or '!' anywhere restarts the line (NMEA resync), except inside a
- *   "station " line, whose name/callsign may legally contain them.
+ *   "station " line, whose name/callsign may legally contain them, and a
+ *   "gnss " line, whose argument is a "$..." sentence for the GNSS module.
  * - rxLost (bytes discarded by the TX mute window) drops the partial line,
  *   so two half lines are never glued together.
  */
@@ -43,6 +44,17 @@ struct LineAssembler
     return pos >= 8 && memcmp(buf, "station ", 8) == 0;
   }
 
+  bool inGnssLine() const
+  {
+    return pos >= 5 && memcmp(buf, "gnss ", 5) == 0;
+  }
+
+  // Lines whose argument may legally contain '$' / '!' (no NMEA resync).
+  bool inRawLine() const
+  {
+    return inStationLine() || inGnssLine();
+  }
+
   // Returns true when a complete NUL-terminated line is in buf.
   bool feed(char c, bool rxLost)
   {
@@ -50,7 +62,7 @@ struct LineAssembler
       pos = 0;
     if ( c == '\r' )
       return false;
-    if ( (c == '$' || c == '!') && pos > 0 && !inStationLine() )
+    if ( (c == '$' || c == '!') && pos > 0 && !inRawLine() )
       pos = 0;
     if ( pos == 0 && c != '\n' && c != '$' && c != '!' && !isalpha((unsigned char)c) )
       return false;
@@ -175,7 +187,7 @@ static const char *const kAllVerbs[] = {
     "hourlyreboot on", "hourlyreboot off", "hourlyreboot?",
     "dfu", "erase station", "factory reset",
     "tx test", "tx on", "tx off", "tx?", "stoptx", "reboot", "cli",
-    "gps off", "gps on", "gnss?", "heading off", "heading?", "heading ",
+    "gps off", "gps on", "gnss?", "gnss ", "heading off", "heading?", "heading ",
     "msg24", "otp?", "otp ", "xotrim ", "xotrim?", "pa_level ", "pa_level?"
 };
 
